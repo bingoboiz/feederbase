@@ -1,0 +1,14 @@
+{
+  "name": "com.feeder.editortools",
+  "version": "1.0.0",
+  "displayName": "Feeder Editor Tools Package",
+  "description": "This is Feeder Editor Tools Package",
+  "unity": "2022.3",
+  "author": {
+    "name": "Feeder",
+    "email": "bingo6xxx@gmail.com"
+  },
+  "dependencies": {
+    "com.unity.formats.fbx": "4.2.1"
+  }
+}
