@@ -5,8 +5,135 @@ using UnityEngine;
 
 namespace Feeder
 {
+    public sealed class ComponentFindHit
+    {
+        public int TargetListIndex { get; }
+        public string TargetRootName { get; }
+        public bool IsScene { get; }
+        public string PrefabAssetPath { get; }
+        public string RelativeHierarchyPath { get; }
+        public GameObject SceneGameObject { get; }
+        public Component SceneHostComponent { get; }
+
+        public ComponentFindHit(
+            int targetListIndex,
+            string targetRootName,
+            bool isScene,
+            string prefabAssetPath,
+            string relativeHierarchyPath,
+            GameObject sceneGameObject,
+            Component sceneHostComponent)
+        {
+            TargetListIndex = targetListIndex;
+            TargetRootName = targetRootName ?? throw new InvalidOperationException("target root name is null.");
+            IsScene = isScene;
+            PrefabAssetPath = prefabAssetPath;
+            RelativeHierarchyPath = relativeHierarchyPath ?? throw new InvalidOperationException("relative path is null.");
+            SceneGameObject = sceneGameObject;
+            SceneHostComponent = sceneHostComponent;
+        }
+    }
+
     public static class ComponentBatchOperations
     {
+        public delegate void TargetHierarchyComponentsVisitor(
+            int targetIndex,
+            GameObject targetListGameObject,
+            bool isSceneObject,
+            string prefabAssetPathOrNull,
+            GameObject loadedHierarchyRoot,
+            Component[] componentsInHierarchy);
+
+        public static void VisitEachTargetHierarchyHavingComponents(
+            Type componentType,
+            IReadOnlyList<GameObject> targetObjects,
+            TargetHierarchyComponentsVisitor visit)
+        {
+            if (componentType == null)
+                throw new InvalidOperationException("component type is null.");
+            if (!(targetObjects?.Count > 0))
+                throw new InvalidOperationException("target objects is empty.");
+
+            for (int i = 0; i < targetObjects.Count; i++)
+            {
+                GameObject go = targetObjects[i];
+                if (go == null)
+                {
+                    Debug.LogWarning($"[ComponentBatchOperations] Skipping null at targetObjects[{i}].");
+                    continue;
+                }
+
+                if (go.scene.IsValid())
+                {
+                    Component[] targets = go.GetComponentsInChildren(componentType, true);
+                    visit(i, go, true, null, go, targets);
+                }
+                else
+                {
+                    string path = AssetDatabase.GetAssetPath(go);
+                    if (string.IsNullOrEmpty(path))
+                    {
+                        Debug.LogWarning($"[ComponentBatchOperations] Skipping targetObjects[{i}] (no asset path).");
+                        continue;
+                    }
+
+                    GameObject prefabRoot = PrefabUtility.LoadPrefabContents(path);
+                    try
+                    {
+                        Component[] targets = prefabRoot.GetComponentsInChildren(componentType, true);
+                        visit(i, go, false, path, prefabRoot, targets);
+                    }
+                    finally
+                    {
+                        PrefabUtility.UnloadPrefabContents(prefabRoot);
+                    }
+                }
+            }
+        }
+
+        public static void CollectComponentFindHits(
+            Type componentType,
+            IReadOnlyList<GameObject> targetObjects,
+            List<ComponentFindHit> appendTo)
+        {
+            if (appendTo == null)
+                throw new InvalidOperationException("append list is null.");
+
+            VisitEachTargetHierarchyHavingComponents(componentType, targetObjects,
+                (int targetIndex, GameObject targetListGameObject, bool isSceneObject, string prefabAssetPathOrNull, GameObject loadedHierarchyRoot, Component[] componentsInHierarchy) =>
+                {
+                    Transform rootTransform = loadedHierarchyRoot.transform;
+                    for (int c = 0; c < componentsInHierarchy.Length; c++)
+                    {
+                        Component comp = componentsInHierarchy[c];
+                        Transform hostTransform = comp.transform;
+                        string relativePath = HierarchyPathResolver.BuildRelativePathFromAncestorTransform(rootTransform, hostTransform);
+                        if (isSceneObject)
+                        {
+                            appendTo.Add(new ComponentFindHit(
+                                targetIndex,
+                                targetListGameObject.name,
+                                true,
+                                null,
+                                relativePath,
+                                hostTransform.gameObject,
+                                comp));
+                        }
+                        else
+                        {
+                            appendTo.Add(new ComponentFindHit(
+                                targetIndex,
+                                targetListGameObject.name,
+                                false,
+                                prefabAssetPathOrNull,
+                                relativePath,
+                                null,
+                                null));
+                        }
+                    }
+                });
+        }
+
         public static int AddComponentToTargets(
             Type componentType,
             string hierarchyPath,
@@ -75,13 +202,13 @@ namespace Feeder
             return addedCount;
         }
 
-        public static int ApplyModifyToTargets(
+        public static int ApplyModifyToCachedComponentHits(
             Type componentType,
             Component previewComponent,
             IReadOnlyCollection<string> modifiedPropertyPaths,
             bool incrementChanges,
             int incrementRate,
-            IReadOnlyList<GameObject> targetObjects)
+            IReadOnlyList<ComponentFindHit> hits)
         {
             if (componentType == null)
                 throw new InvalidOperationException("component type is null.");
@@ -89,71 +216,69 @@ namespace Feeder
                 throw new InvalidOperationException("preview component is null.");
             if (modifiedPropertyPaths == null || modifiedPropertyPaths.Count == 0)
                 throw new InvalidOperationException("no modified properties.");
-            if (!(targetObjects?.Count > 0))
-                throw new InvalidOperationException("target objects is empty.");
+            if (hits == null)
+                throw new InvalidOperationException("hits is null.");
+
+            if (hits.Count == 0)
+            {
+                Debug.Log("[ComponentBatchOperations] ApplyModify: cache empty, nothing to modify.");
+                return 0;
+            }
 
             int modifiedCount = 0;
+            string openPrefabPath = null;
+            GameObject openPrefabRoot = null;
+            bool openPrefabDirty = false;
 
-            for (int objIndex = 0; objIndex < targetObjects.Count; objIndex++)
+            try
             {
-                var go = targetObjects[objIndex];
-                if (go == null)
+                for (int i = 0; i < hits.Count; i++)
                 {
-                    Debug.LogWarning($"[ComponentBatchOperations] Skipping null at targetObjects[{objIndex}].");
-                    continue;
-                }
-
-                if (go.scene.IsValid())
-                {
-                    var targets = go.GetComponentsInChildren(componentType, true);
-                    foreach (var comp in targets)
+                    ComponentFindHit hit = hits[i];
+                    if (hit.IsScene)
                     {
+                        CloseOpenPrefabSessionForBatch(ref openPrefabPath, ref openPrefabRoot, ref openPrefabDirty);
+
+                        Component dst = hit.SceneHostComponent;
+                        if (dst == null)
+                            throw new InvalidOperationException("scene hit has no SceneHostComponent.");
+
                         ComponentPropertyApplier.ApplyDifferences(
                             previewComponent,
-                            comp,
+                            dst,
                             modifiedPropertyPaths,
                             incrementChanges,
                             incrementRate,
                             modifiedCount);
                         modifiedCount++;
-                    }
-                }
-                else
-                {
-                    var path = AssetDatabase.GetAssetPath(go);
-                    if (string.IsNullOrEmpty(path))
-                    {
-                        Debug.LogWarning($"[ComponentBatchOperations] Skipping targetObjects[{objIndex}] (no asset path).");
                         continue;
                     }
 
-                    var prefabRoot = PrefabUtility.LoadPrefabContents(path);
-                    try
+                    if (hit.PrefabAssetPath != openPrefabPath)
                     {
-                        var targets = prefabRoot.GetComponentsInChildren(componentType, true);
-                        bool shouldSave = false;
-                        foreach (var comp in targets)
-                        {
-                            ComponentPropertyApplier.ApplyDifferences(
-                                previewComponent,
-                                comp,
-                                modifiedPropertyPaths,
-                                incrementChanges,
-                                incrementRate,
-                                modifiedCount);
-                            modifiedCount++;
-                            shouldSave = true;
-                        }
-                        if (shouldSave)
-                        {
-                            PrefabUtility.SaveAsPrefabAsset(prefabRoot, path);
-                        }
+                        CloseOpenPrefabSessionForBatch(ref openPrefabPath, ref openPrefabRoot, ref openPrefabDirty);
+
+                        GameObject loaded = PrefabUtility.LoadPrefabContents(hit.PrefabAssetPath);
+                        openPrefabPath = hit.PrefabAssetPath;
+                        openPrefabRoot = loaded;
+                        openPrefabDirty = false;
                     }
-                    finally
-                    {
-                        PrefabUtility.UnloadPrefabContents(prefabRoot);
-                    }
+
+                    Component prefabDst = ResolveCachedPrefabHitComponent(componentType, openPrefabRoot, hit);
+                    ComponentPropertyApplier.ApplyDifferences(
+                        previewComponent,
+                        prefabDst,
+                        modifiedPropertyPaths,
+                        incrementChanges,
+                        incrementRate,
+                        modifiedCount);
+                    modifiedCount++;
+                    openPrefabDirty = true;
                 }
+            }
+            finally
+            {
+                CloseOpenPrefabSessionForBatch(ref openPrefabPath, ref openPrefabRoot, ref openPrefabDirty);
             }
 
             AssetDatabase.SaveAssets();
@@ -161,65 +286,94 @@ namespace Feeder
             return modifiedCount;
         }
 
-        public static int RemoveComponentFromTargets(Type componentType, IReadOnlyList<GameObject> targetObjects)
+        public static int RemoveComponentFromCachedComponentHits(Type componentType, IReadOnlyList<ComponentFindHit> hits)
         {
             if (componentType == null)
                 throw new InvalidOperationException("component type is null.");
-            if (!(targetObjects?.Count > 0))
-                throw new InvalidOperationException("target objects is empty.");
+            if (hits == null)
+                throw new InvalidOperationException("hits is null.");
+
+            if (hits.Count == 0)
+            {
+                Debug.Log("[ComponentBatchOperations] RemoveComponent: cache empty, nothing to remove.");
+                return 0;
+            }
 
             int removedCount = 0;
+            string openPrefabPath = null;
+            GameObject openPrefabRoot = null;
+            bool openPrefabDirty = false;
 
-            for (int i = 0; i < targetObjects.Count; i++)
+            try
             {
-                var go = targetObjects[i];
-                if (go == null)
+                for (int i = 0; i < hits.Count; i++)
                 {
-                    Debug.LogWarning($"[ComponentBatchOperations] Skipping null at targetObjects[{i}].");
-                    continue;
-                }
+                    ComponentFindHit hit = hits[i];
+                    if (hit.IsScene)
+                    {
+                        CloseOpenPrefabSessionForBatch(ref openPrefabPath, ref openPrefabRoot, ref openPrefabDirty);
 
-                if (go.scene.IsValid())
-                {
-                    var comps = go.GetComponentsInChildren(componentType, true);
-                    foreach (var comp in comps)
-                    {
-                        Undo.DestroyObjectImmediate(comp);
+                        Component dst = hit.SceneHostComponent;
+                        if (dst == null)
+                            throw new InvalidOperationException("scene hit has no SceneHostComponent.");
+
+                        Undo.DestroyObjectImmediate(dst);
                         removedCount++;
-                    }
-                }
-                else
-                {
-                    var path = AssetDatabase.GetAssetPath(go);
-                    if (string.IsNullOrEmpty(path))
-                    {
-                        Debug.LogWarning($"[ComponentBatchOperations] Skipping targetObjects[{i}] (no asset path).");
                         continue;
                     }
 
-                    var prefabRoot = PrefabUtility.LoadPrefabContents(path);
-                    bool modified = false;
-
-                    var comps = prefabRoot.GetComponentsInChildren(componentType, true);
-                    foreach (var comp in comps)
+                    if (hit.PrefabAssetPath != openPrefabPath)
                     {
-                        UnityEngine.Object.DestroyImmediate(comp, true);
-                        removedCount++;
-                        modified = true;
+                        CloseOpenPrefabSessionForBatch(ref openPrefabPath, ref openPrefabRoot, ref openPrefabDirty);
+
+                        GameObject loaded = PrefabUtility.LoadPrefabContents(hit.PrefabAssetPath);
+                        openPrefabPath = hit.PrefabAssetPath;
+                        openPrefabRoot = loaded;
+                        openPrefabDirty = false;
                     }
 
-                    if (modified)
-                    {
-                        PrefabUtility.SaveAsPrefabAsset(prefabRoot, path);
-                    }
-
-                    PrefabUtility.UnloadPrefabContents(prefabRoot);
+                    Component prefabDst = ResolveCachedPrefabHitComponent(componentType, openPrefabRoot, hit);
+                    UnityEngine.Object.DestroyImmediate(prefabDst, true);
+                    removedCount++;
+                    openPrefabDirty = true;
                 }
+            }
+            finally
+            {
+                CloseOpenPrefabSessionForBatch(ref openPrefabPath, ref openPrefabRoot, ref openPrefabDirty);
             }
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             return removedCount;
+        }
+
+        // assumes one component of componentType on the resolved host transform
+        private static Component ResolveCachedPrefabHitComponent(Type componentType, GameObject loadedPrefabRoot, ComponentFindHit hit)
+        {
+            Transform rootTransform = loadedPrefabRoot.transform;
+            Transform hostTransform = string.IsNullOrEmpty(hit.RelativeHierarchyPath)
+                ? rootTransform
+                : HierarchyPathResolver.ResolveTargetByPath(rootTransform, hit.RelativeHierarchyPath);
+            Component found = hostTransform.GetComponent(componentType);
+            if (found == null)
+                throw new InvalidOperationException($"no {componentType.Name} on '{hit.PrefabAssetPath}' at '{hit.RelativeHierarchyPath}'.");
+
+            return found;
+        }
+
+        private static void CloseOpenPrefabSessionForBatch(ref string openPrefabPath, ref GameObject openPrefabRoot, ref bool openPrefabDirty)
+        {
+            if (openPrefabPath == null || openPrefabRoot == null)
+                return;
+
+            if (openPrefabDirty)
+                PrefabUtility.SaveAsPrefabAsset(openPrefabRoot, openPrefabPath);
+
+            PrefabUtility.UnloadPrefabContents(openPrefabRoot);
+            openPrefabPath = null;
+            openPrefabRoot = null;
+            openPrefabDirty = false;
         }
     }
 }

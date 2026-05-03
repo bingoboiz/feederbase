@@ -1,10 +1,35 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Feeder
 {
     public static class HierarchyPathResolver
     {
+        public static string BuildRelativePathFromAncestorTransform(Transform ancestor, Transform descendant)
+        {
+            if (ancestor == null)
+                throw new InvalidOperationException("ancestor is null.");
+            if (descendant == null)
+                throw new InvalidOperationException("descendant is null.");
+            if (descendant == ancestor)
+                return "";
+
+            List<string> segments = new List<string>();
+            Transform walk = descendant;
+            while (walk != null && walk != ancestor)
+            {
+                segments.Add(walk.name);
+                walk = walk.parent;
+            }
+
+            if (walk != ancestor)
+                throw new InvalidOperationException("descendant is not under ancestor.");
+
+            segments.Reverse();
+            return string.Join("/", segments);
+        }
+
         public static Transform ResolveTargetByPath(Transform root, string path)
         {
             if (root == null)

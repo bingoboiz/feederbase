@@ -1,9 +1,10 @@
+using System;
 using System.Collections.Generic;
 using Sirenix.OdinInspector;
 using Sirenix.Serialization;
 using UnityEditor;
+using UnityEditor.SceneManagement;
 using UnityEngine;
-using System;
 
 namespace Feeder
 {
@@ -11,7 +12,7 @@ namespace Feeder
     {
         protected override string GetDescription()
         {
-            return "Chọn prefab/scene, chọn loại component; tab Add thêm component theo path, tab Modify sửa giá trị và Apply, tab Remove xóa component khỏi tất cả target.";
+            return "Chọn prefab/scene, chọn loại component; tab Add thêm component theo path, tab Find liệt kê mọi instance và nhảy tới Hierarchy, tab Modify sửa giá trị và Apply, tab Remove xóa component khỏi tất cả target.";
         }
 
         [LabelText("Target Component Type")]
@@ -36,20 +37,21 @@ namespace Feeder
             EditorGUILayout.Space(6);
             EditorGUILayout.LabelField("Prefab Hierarchy", EditorStyles.boldLabel);
 
+            if (componentType == null)
+            {
+                EditorGUILayout.HelpBox("Select a component type above to build hierarchy paths.", MessageType.Info);
+                return;
+            }
+
             if (!(TargetObjects?.Count > 0))
             {
                 EditorGUILayout.HelpBox("Add prefabs to show hierarchy.", MessageType.Info);
                 return;
             }
 
-            if (GUILayout.Button("Scan Hierarchy", GUILayout.Height(22)))
-            {
-                BuildHierarchyOptions();
-            }
-
             if (hierarchyOptions.Count == 0)
             {
-                EditorGUILayout.HelpBox("No hierarchy data. Click Scan.", MessageType.Info);
+                EditorGUILayout.HelpBox("No hierarchy data for current targets.", MessageType.Info);
                 return;
             }
 
@@ -68,9 +70,63 @@ namespace Feeder
         [Button(ButtonSizes.Large)]
         public void AddComponent()
         {
-            var selectedType = ComponentType;
+            Type selectedType = ComponentType;
             int addedCount = ComponentBatchOperations.AddComponentToTargets(selectedType, SelectedHierarchyPath, TargetObjects);
             Debug.Log($"<color=green>Added {addedCount} component(s) of type {selectedType.Name}</color>");
+            RebuildComponentInstanceCache();
+        }
+
+        [TabGroup("Tabs", "Find")]
+        [CustomValueDrawer(nameof(DrawFindHeader))]
+        public string FindHeader = "";
+
+        private readonly List<ComponentFindHit> cachedComponentHits = new List<ComponentFindHit>();
+        private Vector2 findScroll;
+
+        [TabGroup("Tabs", "Find")]
+        [OnInspectorGUI]
+        private void DrawFindTab()
+        {
+            if (componentType == null)
+            {
+                EditorGUILayout.HelpBox("Select a component type above to list instances.", MessageType.Info);
+                return;
+            }
+
+            if (!(TargetObjects?.Count > 0))
+            {
+                EditorGUILayout.HelpBox("Add target prefabs or scene roots first.", MessageType.Info);
+                return;
+            }
+
+            EditorGUILayout.LabelField($"Find: {cachedComponentHits.Count}", EditorStyles.boldLabel);
+
+            if (cachedComponentHits.Count == 0)
+            {
+                EditorGUILayout.HelpBox("No matching components on targets.", MessageType.Info);
+                return;
+            }
+
+            EditorGUILayout.Space(4);
+            GUIStyle headerStyle = new GUIStyle(EditorStyles.miniBoldLabel);
+            const float indexColumnWidth = 44f;
+
+            findScroll = EditorGUILayout.BeginScrollView(findScroll, GUILayout.MinHeight(220f), GUILayout.MaxHeight(480f));
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Index", headerStyle, GUILayout.Width(indexColumnWidth));
+            GUILayout.Label("Target", headerStyle, GUILayout.ExpandWidth(true));
+            EditorGUILayout.EndHorizontal();
+
+            for (int i = 0; i < cachedComponentHits.Count; i++)
+            {
+                ComponentFindHit hit = cachedComponentHits[i];
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Label((i + 1).ToString(), GUILayout.Width(indexColumnWidth));
+                DrawFindTargetObjectField(hit);
+                EditorGUILayout.EndHorizontal();
+            }
+
+            EditorGUILayout.EndScrollView();
         }
 
         [TabGroup("Tabs", "Modify")]
@@ -84,8 +140,8 @@ namespace Feeder
         [OnInspectorGUI]
         private void DrawPreviewComponentWithTracking()
         {
-            var previewComponent = previewHandle.PreviewComponent;
-            var originalComponent = previewHandle.OriginalComponent;
+            Component previewComponent = previewHandle.PreviewComponent;
+            Component originalComponent = previewHandle.OriginalComponent;
 
             if (previewComponent == null)
             {
@@ -107,10 +163,10 @@ namespace Feeder
 
             EditorGUILayout.Space(5);
 
-            var so = new SerializedObject(previewComponent);
+            SerializedObject so = new SerializedObject(previewComponent);
             so.Update();
 
-            var prop = so.GetIterator();
+            SerializedProperty prop = so.GetIterator();
             bool enterChildren = true;
 
             while (prop.NextVisible(enterChildren))
@@ -151,14 +207,15 @@ namespace Feeder
         [Button(ButtonSizes.Large)]
         public void ApplyModify()
         {
-            int modifiedCount = ComponentBatchOperations.ApplyModifyToTargets(
+            int modifiedCount = ComponentBatchOperations.ApplyModifyToCachedComponentHits(
                 ComponentType,
                 previewHandle.PreviewComponent,
                 modifiedPropertyPaths,
                 IncrementChanges,
                 IncrementRate,
-                TargetObjects);
+                cachedComponentHits);
             Debug.Log($"<color=cyan>Modified {modifiedCount} component(s) of type {ComponentType.Name}</color>");
+            RebuildComponentInstanceCache();
         }
 
         [TabGroup("Tabs", "Modify")]
@@ -178,8 +235,9 @@ namespace Feeder
         [Button(ButtonSizes.Large)]
         public void RemoveComponent()
         {
-            int removedCount = ComponentBatchOperations.RemoveComponentFromTargets(ComponentType, TargetObjects);
+            int removedCount = ComponentBatchOperations.RemoveComponentFromCachedComponentHits(ComponentType, cachedComponentHits);
             Debug.Log($"<color=green>Removed {removedCount} components of type {ComponentType.Name}</color>");
+            RebuildComponentInstanceCache();
         }
 
         private string DrawAddHeader(string value, GUIContent label)
@@ -187,8 +245,18 @@ namespace Feeder
             return DrawTabHeader(
                 value,
                 "ADD COMPONENT INFO",
-                "Select a hierarchy path and add a component to that GameObject.",
+                "Hierarchy paths refresh when component type and targets are both set. Pick a path, then add.",
                 new Color(0.2f, 0.8f, 0.2f)
+            );
+        }
+
+        private string DrawFindHeader(string value, GUIContent label)
+        {
+            return DrawTabHeader(
+                value,
+                "FIND COMPONENT INSTANCES",
+                "Cache rebuilds when component type or targets change (not when switching tabs). Click Target to ping/select.",
+                new Color(0.75f, 0.55f, 1f)
             );
         }
 
@@ -239,21 +307,26 @@ namespace Feeder
         {
             if (componentType == null)
             {
+                cachedComponentHits.Clear();
                 previewHandle.Cleanup();
                 modifiedPropertyPaths.Clear();
+                RebuildHierarchyOptionsIfReady();
                 return;
             }
 
             previewHandle.Reset(ComponentType, modifiedPropertyPaths);
+            RebuildHierarchyOptionsIfReady();
+            RebuildComponentInstanceCache();
         }
 
         [OnInspectorInit]
         private void OnInspectorInit()
         {
             if (componentType != null)
-            {
                 previewHandle.Reset(ComponentType, modifiedPropertyPaths);
-            }
+
+            RebuildHierarchyOptionsIfReady();
+            RebuildComponentInstanceCache();
         }
 
         [OnInspectorDispose]
@@ -279,17 +352,99 @@ namespace Feeder
         protected override void OnTargetObjectsChanged()
         {
             if (!(TargetObjects?.Count > 0))
+            {
+                cachedComponentHits.Clear();
+                RebuildHierarchyOptionsIfReady();
                 return;
+            }
 
-            BuildHierarchyOptions();
+            RebuildHierarchyOptionsIfReady();
+            RebuildComponentInstanceCache();
         }
 
-        private void BuildHierarchyOptions()
+        private void RebuildHierarchyOptionsIfReady()
         {
-            var result = HierarchyOptionsBuilder.Build(TargetObjects);
+            if (componentType == null || !(TargetObjects?.Count > 0))
+            {
+                hierarchyOptions.Clear();
+                conflictPaths.Clear();
+                cachedPrefabCount = 0;
+                return;
+            }
+
+            HierarchyOptionsResult result = HierarchyOptionsBuilder.Build(TargetObjects);
             hierarchyOptions = result.Options;
             conflictPaths = result.ConflictPaths;
             cachedPrefabCount = result.PrefabCount;
+        }
+
+        private void RebuildComponentInstanceCache()
+        {
+            cachedComponentHits.Clear();
+            if (componentType == null)
+                return;
+            if (!(TargetObjects?.Count > 0))
+                return;
+
+            ComponentBatchOperations.CollectComponentFindHits(ComponentType, TargetObjects, cachedComponentHits);
+        }
+
+        private void DrawFindTargetObjectField(ComponentFindHit hit)
+        {
+            string displayName = GetFindHitHostDisplayName(hit);
+            Rect rect = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight, GUILayout.ExpandWidth(true));
+            GUIContent content = EditorGUIUtility.ObjectContent(null, typeof(GameObject));
+            content.text = displayName;
+            EditorGUI.LabelField(rect, content, EditorStyles.objectField);
+            if (GUI.Button(rect, GUIContent.none, GUIStyle.none))
+                NavigateToComponentFindHit(hit);
+        }
+
+        private static string GetFindHitHostDisplayName(ComponentFindHit hit)
+        {
+            if (hit.IsScene)
+                return hit.SceneHostComponent.gameObject.name;
+
+            if (string.IsNullOrEmpty(hit.RelativeHierarchyPath))
+                return hit.TargetRootName;
+
+            int slash = hit.RelativeHierarchyPath.LastIndexOf('/');
+            return slash >= 0 ? hit.RelativeHierarchyPath.Substring(slash + 1) : hit.RelativeHierarchyPath;
+        }
+
+        private void NavigateToComponentFindHit(ComponentFindHit hit)
+        {
+            if (hit.IsScene)
+            {
+                GameObject sceneGo = hit.SceneHostComponent.gameObject;
+                Selection.activeGameObject = sceneGo;
+                EditorGUIUtility.PingObject(sceneGo);
+                return;
+            }
+
+            string assetPath = hit.PrefabAssetPath;
+            PrefabStageUtility.OpenPrefab(assetPath);
+            string relativePath = hit.RelativeHierarchyPath;
+            EditorApplication.delayCall += () => CompleteNavigatePrefabComponentFindHit(assetPath, relativePath);
+        }
+
+        private static void CompleteNavigatePrefabComponentFindHit(string assetPath, string relativeHierarchyPath)
+        {
+            PrefabStage stage = PrefabStageUtility.GetCurrentPrefabStage();
+            if (stage == null)
+                throw new InvalidOperationException("prefab stage is null after OpenPrefab.");
+
+            if (stage.assetPath != assetPath)
+                throw new InvalidOperationException("prefab stage path mismatch; wrong window focused?");
+
+            Transform root = stage.prefabContentsRoot.transform;
+            Transform targetTransform = string.IsNullOrEmpty(relativeHierarchyPath)
+                ? root
+                : HierarchyPathResolver.ResolveTargetByPath(root, relativeHierarchyPath);
+
+            GameObject targetGameObject = targetTransform.gameObject;
+            Selection.activeGameObject = targetGameObject;
+            EditorGUIUtility.PingObject(targetGameObject);
         }
 
         private Type ComponentType
