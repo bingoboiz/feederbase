@@ -45,29 +45,10 @@ namespace Feeder
             sv.DisableAllPicking();
             for (int i = 0; i < keepVisible.Count; i++)
             {
-                var go = keepVisible[i];
+                GameObject go = keepVisible[i];
                 if (go == null) continue;
                 sv.Show(go, true);
                 sv.EnablePicking(go, true);
-            }
-            // keep MeshHighlightDrawer holders visible for wire display but disable picking so they don't block selection
-            DisablePickingForMeshHighlightDrawerHolders(scene, sv);
-        }
-
-        // shows MeshHighlightDrawer holders but disables picking so clicks pass through
-        public static void DisablePickingForMeshHighlightDrawerHolders(Scene scene, SceneVisibilityManager sv)
-        {
-            if (!scene.IsValid() || sv == null) return;
-            var roots = scene.GetRootGameObjects();
-            for (int i = 0; i < roots.Length; i++)
-            {
-                var drawers = roots[i].GetComponentsInChildren<MeshHighlightDrawer>(true);
-                for (int j = 0; j < drawers.Length; j++)
-                {
-                    var go = drawers[j].gameObject;
-                    sv.Show(go, true);
-                    sv.DisablePicking(go, true);
-                }
             }
         }
 
