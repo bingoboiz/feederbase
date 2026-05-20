@@ -9,11 +9,13 @@ public static class StylesUtils
 
     public static void DrawDescription(string text)
     {
+        EnsureStyles();
         DrawBox(text, FBlue, s_DescriptionStyle);
     }
 
     public static void DrawInfoBox(string text)
     {
+        EnsureStyles();
         DrawBox(text, FInfoTeal, s_InfoBoxStyle);
     }
 

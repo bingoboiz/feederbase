@@ -25,7 +25,7 @@ namespace Feeder
         public const string BatchComponentReplacerToolPath = PrefabRoot + "Component Replacer Tool";
         public const string BatchMissingComponentToolPath = PrefabRoot + "Missing Component Handler Tool";
 
-        public const string UnpackEnviromentToolPath = OptimizedRoot + "Unpack Enviroment Tool";
+        public const string UnpackMeshToolPath = OptimizedRoot + "Unpack Mesh Tool";
         public const string RepackModelsToolPath = OptimizedRoot + "Repack Models Tool";
         public const string DeduplicateMeshToolPath = OptimizedRoot + "Deduplicate Mesh Tool";
         public const string DeduplicateTextureToolPath = OptimizedRoot + "Deduplicate Texture Tool";
@@ -49,7 +49,7 @@ namespace Feeder
             tree.Add(CharacterMeshUpdaterToolPath, ScriptableObject.CreateInstance<FCharacterMeshUpdateTool>(), FeederIconCatalog.CharacterMeshUpdaterToolIcon);
             tree.Add(DataClonerToolPath, ScriptableObject.CreateInstance<FDataClonerTool>(), FeederIconCatalog.DataClonerToolIcon);
 
-            tree.Add(UnpackEnviromentToolPath, ScriptableObject.CreateInstance<FUnpackEviromentTool>(), FeederIconCatalog.DefaultToolIcon);
+            tree.Add(UnpackMeshToolPath, ScriptableObject.CreateInstance<FUnpackMeshTool>(), FeederIconCatalog.DefaultToolIcon);
             tree.Add(DeduplicateTextureToolPath, ScriptableObject.CreateInstance<FDeduplicateTextureTool>(), FeederIconCatalog.DefaultToolIcon);
             tree.Add(DeduplicateMaterialToolPath, ScriptableObject.CreateInstance<FDeduplicateMaterialTool>(), FeederIconCatalog.DefaultToolIcon);
             tree.Add(DeduplicateMeshToolPath, ScriptableObject.CreateInstance<FDeduplicateMeshTool>(), FeederIconCatalog.DefaultToolIcon);
