@@ -26,7 +26,7 @@ namespace Feeder
 
         protected override string GetDescription()
         {
-            return "Drag Mesh assets into TargetMeshes. Compare first mesh with selected mesh (prev/next).";
+            return "So sánh từng cặp Mesh asset để tìm và gộp mesh trùng lặp. Kéo mesh vào TargetMeshes, dùng Prev/Next để chọn cặp so sánh, Merge để gộp.";
         }
 
         private const float ActionButtonGap = 6f;

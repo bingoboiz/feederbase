@@ -5,12 +5,13 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FSortOrderTool : FTargetAssetsToolBase
+    public sealed class FCompareStringTool : FTargetAssetsToolBase
     {
         [System.Serializable]
-        private sealed class SortOrderMappingRow
+        private sealed class MatchRow
         {
-            [TableColumnWidth(180)]
+            [TableColumnWidth(200, Resizable = true)]
+            [ReadOnly]
             public string EnumName;
 
             [TableColumnWidth(80, Resizable = false)]
@@ -19,14 +20,15 @@ namespace Feeder
             [DisplayAsString]
             public string Score;
 
-            [TableColumnWidth(280)]
             [AssetSelector(Paths = "Assets")]
             public UnityEngine.Object Asset;
         }
 
         protected override string GetDescription()
         {
-            return "Sắp xếp TargetAssets theo thứ tự enum bằng cách khớp tên mờ. Analyze hiện bảng map; Apply Sort ghi đè TargetAssets theo thứ tự enum (null = không khớp).";
+            return "Fuzzy-match TargetAssets to enum values by name. Handles case, special chars, token reorder, and typos. " +
+                   "Example: enum 'Jewelry_Flower_Choker' matches asset 'flowe_choker_jewelry' at ~95% similarity. " +
+                   "Score shown even when below threshold so you can tune it. Asset is editable for manual override.";
         }
 
         [PropertySpace(SpaceBefore = 8)]
@@ -42,41 +44,34 @@ namespace Feeder
         [SerializeField]
         private float _matchThreshold = 0.9f;
 
-        [PropertyOrder(40)]
-        [OnInspectorGUI]
-        private void DrawGuide()
-        {
-            GUILayout.Space(2);
-            StylesUtils.DrawInfoBox(
-                "Enum Type    chọn enum làm thứ tự chuẩn\n" +
-                "Threshold    ngưỡng độ khớp tối thiểu (0–1), thường để 0.8–0.9\n" +
-                "Analyze      xem bảng map enum → asset kèm % khớp\n" +
-                "Apply Sort   sắp xếp lại TargetAssets theo thứ tự enum (null = không khớp)"
-            );
-            GUILayout.Space(4);
-        }
-
-        [PropertyOrder(50)]
         [PropertySpace(SpaceBefore = 10)]
-        [ButtonGroup("SortActions")]
-        [Button("Analyze", ButtonSizes.Medium)]
+        [ShowIf(nameof(HasRows))]
+        [TableList(ShowIndexLabels = true, IsReadOnly = false, NumberOfItemsPerPage = 15, AlwaysExpanded = true, ShowPaging = true)]
+        [LabelText("Enum → Asset mapping")]
+        [SerializeField]
+        private List<MatchRow> _rows = new List<MatchRow>();
+
+        private bool HasRows => _rows?.Count > 0;
+
+        [PropertySpace(SpaceBefore = 6)]
+        [Button("Analyze", ButtonSizes.Large)]
         private void Analyze()
         {
-            Type enumType = EnumTypeUtils.ResolveEnumType(_selectedEnumTypeName);
+            var enumType = EnumTypeUtils.ResolveEnumType(_selectedEnumTypeName);
             if (enumType == null)
                 throw new InvalidOperationException("Select an enum type first.");
             if (TargetAssets == null)
                 throw new InvalidOperationException("TargetAssets is null.");
 
-            _mappingRows ??= new List<SortOrderMappingRow>();
-            _mappingRows.Clear();
+            _rows ??= new List<MatchRow>();
+            _rows.Clear();
 
-            string[] assetNormalized = new string[TargetAssets.Count];
+            var assetNormalized = new string[TargetAssets.Count];
             for (int i = 0; i < TargetAssets.Count; i++)
                 assetNormalized[i] = TargetAssets[i] != null ? FuzzyMatchUtils.Normalize(TargetAssets[i].name) : null;
 
-            HashSet<int> usedIndices = new HashSet<int>();
-            Array enumValues = System.Enum.GetValues(enumType);
+            var usedIndices = new HashSet<int>();
+            var enumValues = System.Enum.GetValues(enumType);
 
             for (int i = 0; i < enumValues.Length; i++)
             {
@@ -108,7 +103,7 @@ namespace Feeder
                     usedIndices.Add(bestIndex);
                 }
 
-                _mappingRows.Add(new SortOrderMappingRow
+                _rows.Add(new MatchRow
                 {
                     EnumName = enumName,
                     Score = bestScore > 0f ? $"{bestScore * 100f:F1}" : "—",
@@ -116,30 +111,6 @@ namespace Feeder
                 });
             }
         }
-
-        [PropertyOrder(50)]
-        [ButtonGroup("SortActions")]
-        [Button("Apply Sort", ButtonSizes.Medium)]
-        private void ApplySort()
-        {
-            if (_mappingRows == null || _mappingRows.Count == 0)
-                throw new InvalidOperationException("Run Analyze first and ensure an enum type is selected.");
-            FDataContainer data = GetDataContainer();
-            data.TargetAssets.Clear();
-            for (int i = 0; i < _mappingRows.Count; i++)
-                data.TargetAssets.Add(_mappingRows[i].Asset);
-            FDataPersistenceService.SaveData(data);
-        }
-
-        [PropertyOrder(100)]
-        [PropertySpace(SpaceBefore = 10)]
-        [ShowIf(nameof(HasMapping))]
-        [TableList(ShowIndexLabels = true, IsReadOnly = false, NumberOfItemsPerPage = 15, AlwaysExpanded = true, ShowPaging = true)]
-        [LabelText("Enum → Asset mapping")]
-        [SerializeField]
-        private List<SortOrderMappingRow> _mappingRows = new List<SortOrderMappingRow>();
-
-        private bool HasMapping => _mappingRows?.Count > 0;
 
         private IEnumerable<ValueDropdownItem<string>> GetEnumTypeDropdown()
             => EnumTypeUtils.GetEnumTypeDropdown();

@@ -14,7 +14,19 @@ namespace Feeder
     {
         protected override string GetDescription()
         {
-            return "Export each mesh as FBX at the same location as the mesh asset. Replaces scene refs with the FBX mesh, then deletes the original mesh asset.";
+            return "Export từng Mesh thành file FBX cùng thư mục, thay thế tham chiếu trong scene rồi xóa mesh gốc. Thao tác không thể undo.";
+        }
+
+        [OnInspectorGUI]
+        private void DrawGuide()
+        {
+            GUILayout.Space(2);
+            StylesUtils.DrawInfoBox(
+                "TargetMeshes    kéo các Mesh asset cần đóng gói vào đây\n" +
+                "Repack          xuất FBX, cập nhật scene ref, xóa mesh gốc\n" +
+                "lưu ý: thao tác này không thể undo — backup trước khi chạy"
+            );
+            GUILayout.Space(4);
         }
 
         [Button(ButtonSizes.Large), GUIColor(0.3f, 0.8f, 1f)]

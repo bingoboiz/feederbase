@@ -23,7 +23,7 @@ namespace Feeder
 
         protected override string GetDescription()
         {
-            return "Scan TargetObjects for MeshRenderers, collect materials. Two materials are considered duplicate iff they use the same base map texture (_BaseMap / _MainTex). Each list below is one group of duplicates.";
+            return "Quét TargetObjects tìm material trùng lặp (cùng base map texture) rồi gộp lại. Mỗi nhóm bên dưới là một tập material trùng nhau.";
         }
 
         [Title("Settings")]
@@ -34,6 +34,18 @@ namespace Feeder
         [LabelText("Skip Disabled GameObjects")]
         [ShowInInspector, OdinSerialize]
         private bool skipDisabledGameObjects = true;
+
+        [OnInspectorGUI]
+        private void DrawGuide()
+        {
+            GUILayout.Space(2);
+            StylesUtils.DrawInfoBox(
+                "TargetObjects    root chứa MeshRenderer\n" +
+                "hai material bị coi là trùng nếu cùng _BaseMap / _MainTex\n" +
+                "Resolve          giữ lại một material, gán lại toàn bộ ref còn lại"
+            );
+            GUILayout.Space(4);
+        }
 
         [Button(ButtonSizes.Large), GUIColor(0.3f, 0.8f, 1f)]
         public void FindDuplicateMaterials()

@@ -24,7 +24,7 @@ namespace Feeder
 
         protected override string GetDescription()
         {
-            return "TargetObjects (roots): scan full hierarchy for MeshFilter+MeshRenderer, each material's Base Map (_BaseMap / _MainTex) only. Collected textures listed below; similar (same resolution + same pixels) are grouped for Resolve.";
+            return "Quét TargetObjects tìm texture giống nhau (cùng độ phân giải + pixel) rồi gộp lại. Chỉ quét Base Map (_BaseMap / _MainTex) của từng material.";
         }
 
         [Title("Settings")]
@@ -35,6 +35,19 @@ namespace Feeder
         [LabelText("Skip Disabled GameObjects")]
         [ShowInInspector, OdinSerialize]
         private bool skipDisabledGameObjects = true;
+
+        [OnInspectorGUI]
+        private void DrawGuide()
+        {
+            GUILayout.Space(2);
+            StylesUtils.DrawInfoBox(
+                "TargetObjects    root chứa MeshFilter + MeshRenderer\n" +
+                "chỉ quét slot _BaseMap / _MainTex của mỗi material\n" +
+                "hai texture bị coi là giống nếu cùng resolution và cùng pixel\n" +
+                "Resolve          chọn texture gốc, các ref còn lại trỏ về texture đó"
+            );
+            GUILayout.Space(4);
+        }
 
         [Button(ButtonSizes.Large), GUIColor(0.3f, 0.8f, 1f)]
         public void FindSimilarTexture()

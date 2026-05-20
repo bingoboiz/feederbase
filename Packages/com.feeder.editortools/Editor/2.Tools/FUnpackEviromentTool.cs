@@ -18,7 +18,7 @@ namespace Feeder
 
         protected override string GetDescription()
         {
-            return "Unpack environment: extract meshes, materials and textures from MeshRenderers into per-target folders; shared assets go to Common.";
+            return "Tách mesh, material, texture từ MeshRenderer ra thư mục riêng theo từng target. Asset dùng chung nhiều target sẽ được lưu vào thư mục _Common.";
         }
 
         [Title("Settings")]
@@ -34,6 +34,19 @@ namespace Feeder
         [LabelText("Skip Disabled GameObjects")]
         [ShowInInspector, OdinSerialize]
         private bool skipDisabledGameObjects = true;
+
+        [OnInspectorGUI]
+        private void DrawGuide()
+        {
+            GUILayout.Space(2);
+            StylesUtils.DrawInfoBox(
+                "TargetObjects     root của environment cần unpack\n" +
+                "Save Folder       thư mục gốc lưu toàn bộ output\n" +
+                "mỗi target → thư mục riêng: Models, Materials, Textures\n" +
+                "asset dùng chung nhiều target → lưu vào _Common"
+            );
+            GUILayout.Space(4);
+        }
 
         [Button(ButtonSizes.Large), GUIColor(0.3f, 0.8f, 1f)]
         public void Unpack()

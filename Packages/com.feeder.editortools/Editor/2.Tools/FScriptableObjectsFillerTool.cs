@@ -21,7 +21,7 @@ namespace Feeder
 
         protected override string GetDescription()
         {
-            return "Fill Dictionary<Enum, Sprite> on a ScriptableObject by matching enum names to sprite names in a folder. Use key/value match options and Report Missing to list gaps.";
+            return "Tự điền Dictionary<Enum, Sprite> trong ScriptableObject bằng cách ghép tên enum với sprite trong thư mục. Dùng Key/Value Settings để tinh chỉnh cách so khớp.";
         }
 
         [BoxGroup("Target SO")]
@@ -84,6 +84,21 @@ namespace Feeder
         [Tooltip("If true, will override existing sprite values. If false, will skip enum values that already have sprites.")]
         [ShowInInspector]
         public bool OverrideExistingValues = true;
+
+        [OnInspectorGUI]
+        private void DrawGuide()
+        {
+            GUILayout.Space(2);
+            StylesUtils.DrawInfoBox(
+                "AllLowerCase              so sánh sau khi chuyển về chữ thường\n" +
+                "IgnoreSpecialChars        bỏ qua _ - . và ký tự đặc biệt khi so sánh\n" +
+                "TrimAfterNthSeparator     cắt bỏ phần sau separator thứ N\n" +
+                "Key Settings              áp dụng cho tên enum (key)\n" +
+                "Value Settings            áp dụng cho tên sprite (value)\n" +
+                "Report Missing            liệt kê những enum chưa có sprite tương ứng"
+            );
+            GUILayout.Space(4);
+        }
 
         [Button(ButtonSizes.Large)]
         [GUIColor(0.3f, 0.8f, 1f)]

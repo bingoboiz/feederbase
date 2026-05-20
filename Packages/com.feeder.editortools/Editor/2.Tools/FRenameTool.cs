@@ -10,7 +10,7 @@ namespace Feeder
     {
         protected override string GetDescription()
         {
-            return "Rename assets by pattern or find & replace. Drag assets into TargetAssets first.";
+            return "Đổi tên asset hoặc scene object theo pattern hoặc tìm & thay thế. Kéo asset vào TargetAssets trước.";
         }
 
         [System.Serializable]
@@ -21,16 +21,39 @@ namespace Feeder
             public string NewName;
         }
 
+        private class SceneObjectRenameEntry
+        {
+            public GameObject GameObject;
+            public string OldName;
+            public string NewName;
+        }
+
         [PropertySpace(SpaceBefore = 10)]
         [TabGroup("RenameMode", "Change Pattern")]
         [LabelText("Input Pattern"), Tooltip("use {number}, {variant}, {EnumType} (numeric), {(s)EnumType} (string)")]
         [ShowInInspector, ReadOnly, EnableGUI] private string inputPattern = "";
 
-        [PropertySpace(SpaceBefore = 6, SpaceAfter = 6)]
+        
+        [PropertySpace(SpaceBefore = 6, SpaceAfter = 2)]
         [TabGroup("RenameMode", "Change Pattern")]
-        [LabelText("Output Pattern"), Tooltip("use {number}, {variant}, {EnumType} (numeric), {(s)EnumType} (string)")]
+        [LabelText("Output Pattern"), Tooltip("use {number}, {variant}, {start:step}, {EnumType} (numeric), {(s)EnumType} (string)")]
         public string outputPattern = "";
 
+        [TabGroup("RenameMode", "Change Pattern")]
+        [OnInspectorGUI, PropertyOrder(1)]
+        private void DrawGuide()
+        {
+            GUILayout.Space(2);
+            StylesUtils.DrawInfoBox(
+                "{number}         số được tách ra từ input pattern\n" +
+                "{variant}        đoạn văn bản được tách ra từ input\n" +
+                "{start:step}     đếm tự động theo asset  (vd: {0:1} → 0, 1, 2…)\n" +
+                "{EnumType}       giá trị số của enum theo slot index\n" +
+                "{(s)EnumType}    tên chuỗi của enum theo slot index"
+            );
+            GUILayout.Space(4);
+        }
+        
         [TabGroup("RenameMode", "Change Pattern")]
         [Button("Analyze Pattern", ButtonSizes.Medium)]
         private void AnalyzePattern()
@@ -50,12 +73,14 @@ namespace Feeder
                 throw new System.InvalidOperationException("outputPattern is empty.");
 
             var assetEntries = new Dictionary<string, AssetRenameEntry>(TargetAssets.Count);
-            BuildRenamePlan(TargetAssets, inputPattern, outputPattern, assetEntries);
+            var sceneEntries = new Dictionary<int, SceneObjectRenameEntry>(TargetAssets.Count);
+            BuildRenamePlan(TargetAssets, inputPattern, outputPattern, assetEntries, sceneEntries);
 
-            if (assetEntries.Count == 0)
+            if (assetEntries.Count == 0 && sceneEntries.Count == 0)
                 return;
 
             ApplyAssetRenames(assetEntries);
+            ApplySceneObjectRenames(sceneEntries);
             RefreshInputPattern();
         }
 
@@ -79,12 +104,14 @@ namespace Feeder
                 throw new System.InvalidOperationException("findString is empty.");
 
             var assetEntries = new Dictionary<string, AssetRenameEntry>(TargetAssets.Count);
-            BuildFindReplacePlan(TargetAssets, findString, replaceString ?? "", assetEntries);
+            var sceneEntries = new Dictionary<int, SceneObjectRenameEntry>(TargetAssets.Count);
+            BuildFindReplacePlan(TargetAssets, findString, replaceString ?? "", assetEntries, sceneEntries);
 
-            if (assetEntries.Count == 0)
+            if (assetEntries.Count == 0 && sceneEntries.Count == 0)
                 return;
 
             ApplyAssetRenames(assetEntries);
+            ApplySceneObjectRenames(sceneEntries);
             RefreshInputPattern();
         }
 
@@ -101,6 +128,11 @@ namespace Feeder
                 inputPattern = "";
         }
 
+        private static bool IsSceneObject(Object obj)
+        {
+            return obj is GameObject go && !EditorUtility.IsPersistent(go);
+        }
+
         private static string BuildPatternFromAssets(List<Object> assets)
         {
             if (assets == null || assets.Count == 0)
@@ -111,9 +143,19 @@ namespace Feeder
             {
                 var asset = assets[i];
                 if (asset == null) continue;
-                var path = AssetDatabase.GetAssetPath(asset);
-                if (string.IsNullOrEmpty(path)) continue;
-                var name = Path.GetFileNameWithoutExtension(path);
+
+                string name;
+                if (IsSceneObject(asset))
+                {
+                    name = asset.name;
+                }
+                else
+                {
+                    var path = AssetDatabase.GetAssetPath(asset);
+                    if (string.IsNullOrEmpty(path)) continue;
+                    name = Path.GetFileNameWithoutExtension(path);
+                }
+
                 if (string.IsNullOrEmpty(name)) continue;
                 names.Add(name);
             }
@@ -204,12 +246,14 @@ namespace Feeder
                     throw new System.InvalidOperationException($"enum type not found: {enumTypeName}.");
 
                 var valuesArray = System.Enum.GetValues(enumType);
-                var values = new object[valuesArray.Length];
+                var filteredValues = new System.Collections.Generic.List<object>(valuesArray.Length);
                 for (int i = 0; i < valuesArray.Length; i++)
                 {
                     var value = valuesArray.GetValue(i) ?? throw new System.InvalidOperationException($"enum value at index {i} is null.");
-                    values[i] = value;
+                    if (EnumTypeUtils.ShouldSkipEnumMember(value.ToString())) continue;
+                    filteredValues.Add(value);
                 }
+                var values = filteredValues.ToArray();
 
                 var entry = new EnumCacheEntry
                 {
@@ -259,7 +303,8 @@ namespace Feeder
             List<Object> assets,
             string input,
             string output,
-            Dictionary<string, AssetRenameEntry> assetEntries)
+            Dictionary<string, AssetRenameEntry> assetEntries,
+            Dictionary<int, SceneObjectRenameEntry> sceneEntries)
         {
             bool useEnumSlotIndex = EnumPatternResolver.PatternUsesEnum(output);
             int enumSlotIndex = 0;
@@ -271,6 +316,29 @@ namespace Feeder
                     if (useEnumSlotIndex) enumSlotIndex++;
                     continue;
                 }
+
+                if (IsSceneObject(asset))
+                {
+                    var go = (GameObject)asset;
+                    var oldName = go.name;
+                    int indexForPattern = useEnumSlotIndex ? enumSlotIndex : i;
+                    var resolvedOutput = EnumPatternResolver.Resolve(output, indexForPattern);
+                    var newName = ModifyStringUtils.ApplyPattern(oldName, input, resolvedOutput, indexForPattern);
+                    if (string.IsNullOrEmpty(newName))
+                        throw new System.InvalidOperationException($"rename result is empty at index {i}.");
+
+                    if (newName != oldName)
+                    {
+                        int instanceId = go.GetInstanceID();
+                        if (!sceneEntries.TryGetValue(instanceId, out var entry))
+                            sceneEntries.Add(instanceId, new SceneObjectRenameEntry { GameObject = go, OldName = oldName, NewName = newName });
+                        else if (entry.NewName != newName)
+                            throw new System.InvalidOperationException($"conflicting rename for scene object '{go.name}'.");
+                    }
+                    if (useEnumSlotIndex) enumSlotIndex++;
+                    continue;
+                }
+
                 var assetPath = AssetDatabase.GetAssetPath(asset);
                 if (string.IsNullOrEmpty(assetPath))
                 {
@@ -280,31 +348,27 @@ namespace Feeder
                 }
 
                 var oldFileName = Path.GetFileNameWithoutExtension(assetPath);
-                int indexForPattern = useEnumSlotIndex ? enumSlotIndex : i;
-                var resolvedOutput = EnumPatternResolver.Resolve(output, indexForPattern);
-                var newName = ModifyStringUtils.ApplyPattern(oldFileName, input, resolvedOutput, indexForPattern);
-                if (string.IsNullOrEmpty(newName))
+                int indexForAsset = useEnumSlotIndex ? enumSlotIndex : i;
+                var resolvedAssetOutput = EnumPatternResolver.Resolve(output, indexForAsset);
+                var newAssetName = ModifyStringUtils.ApplyPattern(oldFileName, input, resolvedAssetOutput, indexForAsset);
+                if (string.IsNullOrEmpty(newAssetName))
                     throw new System.InvalidOperationException($"rename result is empty at index {i}.");
 
-                if (newName == oldFileName)
+                if (newAssetName != oldFileName)
                 {
-                    if (useEnumSlotIndex) enumSlotIndex++;
-                    continue;
-                }
-
-                if (!assetEntries.TryGetValue(assetPath, out var entry))
-                {
-                    entry = new AssetRenameEntry
+                    if (!assetEntries.TryGetValue(assetPath, out var entry))
                     {
-                        AssetPath = assetPath,
-                        OldName = oldFileName,
-                        NewName = newName
-                    };
-                    assetEntries.Add(assetPath, entry);
-                }
-                else if (entry.NewName != newName)
-                {
-                    throw new System.InvalidOperationException($"conflicting rename for asset {assetPath}.");
+                        assetEntries.Add(assetPath, new AssetRenameEntry
+                        {
+                            AssetPath = assetPath,
+                            OldName = oldFileName,
+                            NewName = newAssetName
+                        });
+                    }
+                    else if (entry.NewName != newAssetName)
+                    {
+                        throw new System.InvalidOperationException($"conflicting rename for asset {assetPath}.");
+                    }
                 }
                 if (useEnumSlotIndex) enumSlotIndex++;
             }
@@ -314,7 +378,8 @@ namespace Feeder
             List<Object> assets,
             string find,
             string replace,
-            Dictionary<string, AssetRenameEntry> assetEntries)
+            Dictionary<string, AssetRenameEntry> assetEntries,
+            Dictionary<int, SceneObjectRenameEntry> sceneEntries)
         {
             for (int i = 0; i < assets.Count; i++)
             {
@@ -324,6 +389,23 @@ namespace Feeder
                     Debug.LogWarning($"[FRenameTool] Skipping null at TargetAssets[{i}].");
                     continue;
                 }
+
+                if (IsSceneObject(asset))
+                {
+                    var go = (GameObject)asset;
+                    var oldName = go.name;
+                    var newName = oldName.Replace(find, replace);
+                    if (newName != oldName)
+                    {
+                        int instanceId = go.GetInstanceID();
+                        if (!sceneEntries.TryGetValue(instanceId, out var entry))
+                            sceneEntries.Add(instanceId, new SceneObjectRenameEntry { GameObject = go, OldName = oldName, NewName = newName });
+                        else if (entry.NewName != newName)
+                            throw new System.InvalidOperationException($"conflicting rename for scene object '{go.name}'.");
+                    }
+                    continue;
+                }
+
                 var assetPath = AssetDatabase.GetAssetPath(asset);
                 if (string.IsNullOrEmpty(assetPath))
                 {
@@ -332,22 +414,21 @@ namespace Feeder
                 }
 
                 var oldFileName = Path.GetFileNameWithoutExtension(assetPath);
-                var newName = oldFileName.Replace(find, replace);
+                var newFileName = oldFileName.Replace(find, replace);
 
-                if (newName == oldFileName)
+                if (newFileName == oldFileName)
                     continue;
 
-                if (!assetEntries.TryGetValue(assetPath, out var entry))
+                if (!assetEntries.TryGetValue(assetPath, out var assetEntry))
                 {
-                    entry = new AssetRenameEntry
+                    assetEntries.Add(assetPath, new AssetRenameEntry
                     {
                         AssetPath = assetPath,
                         OldName = oldFileName,
-                        NewName = newName
-                    };
-                    assetEntries.Add(assetPath, entry);
+                        NewName = newFileName
+                    });
                 }
-                else if (entry.NewName != newName)
+                else if (assetEntry.NewName != newFileName)
                 {
                     throw new System.InvalidOperationException($"conflicting rename for asset {assetPath}.");
                 }
@@ -373,6 +454,21 @@ namespace Feeder
             {
                 AssetDatabase.StopAssetEditing();
             }
+        }
+
+        private static void ApplySceneObjectRenames(Dictionary<int, SceneObjectRenameEntry> sceneEntries)
+        {
+            if (sceneEntries.Count == 0)
+                return;
+
+            Undo.SetCurrentGroupName("Rename Scene GameObjects");
+            int group = Undo.GetCurrentGroup();
+            foreach (var entry in sceneEntries.Values)
+            {
+                Undo.RecordObject(entry.GameObject, "Rename");
+                entry.GameObject.name = entry.NewName;
+            }
+            Undo.CollapseUndoOperations(group);
         }
     }
 }

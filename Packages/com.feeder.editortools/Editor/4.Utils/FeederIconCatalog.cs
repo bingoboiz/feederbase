@@ -22,7 +22,8 @@ namespace Feeder
         public const SdfIconType CharacterMeshUpdaterToolIcon = SdfIconType.BoxSeam;
         public const SdfIconType MissingScriptHandlerToolIcon = SdfIconType.FileEarmarkX;
         public const SdfIconType DataClonerToolIcon = SdfIconType.Clipboard;
-
+        public const SdfIconType CompareStringToolIcon = SdfIconType.Search;
+        public const SdfIconType MeshBoxColliderFitterToolIcon = SdfIconType.BoundingBox;
 
         public const SdfIconType LegacyPrefabCleanupIcon = SdfIconType.Trash;
         public const SdfIconType LegacyPrefabDisableIcon = SdfIconType.EyeSlash;

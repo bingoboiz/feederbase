@@ -21,6 +21,7 @@ namespace Feeder
         public const string BatchPrefabVariantCreatorToolPath = PrefabRoot + "Prefab Variant Creator Tool";
         public const string BatchNameOffsetToolPath = PrefabRoot + "Name Offset Tool";
         public const string ModelScaleToColliderToolPath = PrefabRoot + "Model Scale To Collider Tool";
+        public const string MeshBoxColliderFitterToolPath = PrefabRoot + "Mesh Box Collider Fitter Tool";
         public const string BatchComponentReplacerToolPath = PrefabRoot + "Component Replacer Tool";
         public const string BatchMissingComponentToolPath = PrefabRoot + "Missing Component Handler Tool";
 
@@ -40,6 +41,7 @@ namespace Feeder
             tree.Add(BatchPrefabVariantCreatorToolPath, ScriptableObject.CreateInstance<FPrefabVariantCreatorTool>(), FeederIconCatalog.PrefabVariantCreatorToolIcon);
             tree.Add(BatchNameOffsetToolPath, ScriptableObject.CreateInstance<FNameOffsetTool>(), FeederIconCatalog.NameOffsetToolIcon);
             tree.Add(ModelScaleToColliderToolPath, ScriptableObject.CreateInstance<FModelScaleToColliderTool>(), FeederIconCatalog.ModelScaleToColliderToolIcon);
+            tree.Add(MeshBoxColliderFitterToolPath, ScriptableObject.CreateInstance<FMeshBoxColliderFitterTool>(), FeederIconCatalog.MeshBoxColliderFitterToolIcon);
             tree.Add(BatchComponentReplacerToolPath, ScriptableObject.CreateInstance<FComponentReplacerTool>(), FeederIconCatalog.ComponentReplacerToolIcon);
             tree.Add(BatchMissingComponentToolPath, ScriptableObject.CreateInstance<FMissingComponentHandlerTool>(), FeederIconCatalog.MissingScriptHandlerToolIcon);
 
