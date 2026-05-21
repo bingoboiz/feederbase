@@ -184,8 +184,14 @@ namespace Feeder
 
             private static bool IsReservedPlaceholder(string key)
             {
-                var t = key?.Trim();
+                string t = key?.Trim();
                 return t == ReservedNumber || t == ReservedVariant;
+            }
+
+            private static bool ShouldSkipPlaceholder(string key)
+            {
+                string t = key?.Trim();
+                return IsReservedPlaceholder(t) || SequenceNumberUtils.IsSequencePlaceholder(t);
             }
 
             /// <summary>True when pattern contains enum placeholder (not number/variant) so slot index drives enum.</summary>
@@ -194,8 +200,8 @@ namespace Feeder
                 if (string.IsNullOrEmpty(pattern)) return false;
                 foreach (System.Text.RegularExpressions.Match m in EnumPlaceholderRegex.Matches(pattern))
                 {
-                    var key = m.Groups[2].Value;
-                    if (!IsReservedPlaceholder(key)) return true;
+                    string key = m.Groups[2].Value;
+                    if (!ShouldSkipPlaceholder(key)) return true;
                 }
                 return false;
             }
@@ -214,7 +220,7 @@ namespace Feeder
                     var enumTypeName = match.Groups[2].Value?.Trim();
                     if (string.IsNullOrEmpty(enumTypeName))
                         throw new System.InvalidOperationException("enum placeholder has empty type name.");
-                    if (IsReservedPlaceholder(enumTypeName))
+                    if (ShouldSkipPlaceholder(enumTypeName))
                         return match.Value;
 
                     var enumEntry = GetOrCreateEnumEntry(enumTypeName);

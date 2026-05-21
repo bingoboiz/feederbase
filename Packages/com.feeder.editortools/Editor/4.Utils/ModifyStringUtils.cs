@@ -65,7 +65,9 @@ namespace Feeder
                     throw new InvalidOperationException($"unsupported placeholder {key}.");
 
                 var value = captures.Consume(key);
-                if (string.IsNullOrEmpty(value))
+                if (value == null)
+                    throw new InvalidOperationException($"missing value for {key}.");
+                if (value.Length == 0 && key != PatternToken.Variant)
                     throw new InvalidOperationException($"missing value for {key}.");
 
                 builder.Append(value);
@@ -108,13 +110,13 @@ namespace Feeder
 
             int minRemaining = GetMinimumRemainingTokens(patternTokens, patternIndex + 1);
             int maxLen = nameTokens.Count - nameIndex - minRemaining;
-            if (maxLen < 1)
+            if (maxLen < 0)
                 return false;
 
-            for (int len = 1; len <= maxLen; len++)
+            for (int len = 0; len <= maxLen; len++)
             {
                 var snapshot = captures.Snapshot();
-                var value = string.Join("_", SliceTokens(nameTokens, nameIndex, len));
+                string value = len == 0 ? "" : string.Join("_", SliceTokens(nameTokens, nameIndex, len));
                 captures.Add(token.Value, value);
 
                 if (TryMatchTokens(nameTokens, patternTokens, nameIndex + len, patternIndex + 1, captures))
@@ -131,7 +133,9 @@ namespace Feeder
             int min = 0;
             for (int i = startIndex; i < patternTokens.Count; i++)
             {
-                min += 1;
+                PatternToken remainingToken = patternTokens[i];
+                if (!remainingToken.IsPlaceholder || remainingToken.Value == PatternToken.Number)
+                    min += 1;
             }
 
             return min;

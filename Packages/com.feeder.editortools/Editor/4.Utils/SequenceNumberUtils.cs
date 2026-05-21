@@ -5,6 +5,17 @@ namespace Feeder
 {
     public static class SequenceNumberUtils
     {
+        public static bool IsSequencePlaceholder(string key)
+        {
+            int separatorIndex = key.IndexOf(':');
+            if (separatorIndex <= 0 || separatorIndex == key.Length - 1)
+                return false;
+
+            string startText = key.Substring(0, separatorIndex);
+            string stepText = key.Substring(separatorIndex + 1);
+            return int.TryParse(startText, out _) && int.TryParse(stepText, out _);
+        }
+
         public static string ReplaceSequencePlaceholders(string pattern, int sequenceIndex)
         {
             if (string.IsNullOrEmpty(pattern))
