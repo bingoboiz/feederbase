@@ -10,6 +10,8 @@ namespace Feeder
         public const SdfIconType SceneLoaderWindowIcon = SdfIconType.Map;
         public const SdfIconType ScriptTemplateWindowIcon = SdfIconType.FileEarmarkText;
 
+        public const SdfIconType AssetCollectorToolIcon = SdfIconType.FolderSymlink;
+        public const SdfIconType AssetOrganizerToolIcon = SdfIconType.FolderCheck;
         public const SdfIconType SortOrderToolIcon = SdfIconType.SortAlphaDown;
         public const SdfIconType RenameToolIcon = SdfIconType.PencilSquare;
         public const SdfIconType ComponentModifyToolIcon = SdfIconType.Sliders;

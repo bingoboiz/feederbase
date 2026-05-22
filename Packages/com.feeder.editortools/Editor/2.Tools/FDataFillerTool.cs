@@ -2,26 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using System.Text.RegularExpressions;
 using Sirenix.OdinInspector;
 using UnityEditor;
 using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FScriptableObjectsFillerTool : FTargetScriptableObjectToolBase
+    public sealed class FDataFillerTool : FTargetScriptableObjectToolBase
     {
-        [Flags]
-        private enum MatchMode
-        {
-            AllLowerCase = 1 << 0,
-            TrimAfterNthSeparator = 1 << 1,
-            IgnoreSpecialCharacters = 1 << 2,
-        }
-
         protected override string GetDescription()
         {
-            return "Tự điền Dictionary<Enum, Sprite> trong ScriptableObject bằng cách ghép tên enum với sprite trong thư mục. Dùng Key/Value Settings để tinh chỉnh cách so khớp.";
+            return "Tự điền Dictionary<Enum, Sprite> trong ScriptableObject bằng cách khớp mờ tên enum với sprite trong thư mục. Dùng Match Threshold để tinh chỉnh độ nhạy khớp.";
         }
 
         [BoxGroup("Target SO")]
@@ -43,41 +34,11 @@ namespace Feeder
         [ShowInInspector]
         public string SelectedFieldName;
 
-        [BoxGroup("Key Settings")]
-        [SerializeField, EnumToggleButtons]
-        [HorizontalGroup("Key Settings/Row", Width = 150)]
-        [LabelText("Match Mode")]
-        private MatchMode keyMatchMode = MatchMode.AllLowerCase | MatchMode.IgnoreSpecialCharacters;
-
-        [ShowIf("@keyMatchMode.HasFlag(MatchMode.TrimAfterNthSeparator)")]
-        [HorizontalGroup("Key Settings/Row")]
-        [LabelText("Separator")]
-        [ShowInInspector]
-        public char KeyTrimSeparator = '_';
-
-        [ShowIf("@keyMatchMode.HasFlag(MatchMode.TrimAfterNthSeparator)")]
-        [HorizontalGroup("Key Settings/Row")]
-        [LabelText("Trim After N")]
-        [ShowInInspector]
-        public int KeyTrimAfterNth = 1;
-
-        [BoxGroup("Value Settings")]
-        [SerializeField, EnumToggleButtons]
-        [HorizontalGroup("Value Settings/Row", Width = 150)]
-        [LabelText("Match Mode")]
-        private MatchMode valueMatchMode = MatchMode.AllLowerCase | MatchMode.IgnoreSpecialCharacters;
-
-        [ShowIf("@valueMatchMode.HasFlag(MatchMode.TrimAfterNthSeparator)")]
-        [HorizontalGroup("Value Settings/Row")]
-        [LabelText("Separator")]
-        [ShowInInspector]
-        public char ValueTrimSeparator = '_';
-
-        [ShowIf("@valueMatchMode.HasFlag(MatchMode.TrimAfterNthSeparator)")]
-        [HorizontalGroup("Value Settings/Row")]
-        [LabelText("Trim After N")]
-        [ShowInInspector]
-        public int ValueTrimAfterNth = 1;
+        [BoxGroup("Settings")]
+        [LabelText("Match Threshold (0–1)")]
+        [Range(0f, 1f)]
+        [SerializeField]
+        private float _matchThreshold = 0.8f;
 
         [BoxGroup("Override Settings")]
         [LabelText("Override Existing Values")]
@@ -90,12 +51,9 @@ namespace Feeder
         {
             GUILayout.Space(2);
             StylesUtils.DrawInfoBox(
-                "AllLowerCase              so sánh sau khi chuyển về chữ thường\n" +
-                "IgnoreSpecialChars        bỏ qua _ - . và ký tự đặc biệt khi so sánh\n" +
-                "TrimAfterNthSeparator     cắt bỏ phần sau separator thứ N\n" +
-                "Key Settings              áp dụng cho tên enum (key)\n" +
-                "Value Settings            áp dụng cho tên sprite (value)\n" +
-                "Report Missing            liệt kê những enum chưa có sprite tương ứng"
+                "Match Threshold    ngưỡng độ khớp tối thiểu (0–1), thường để 0.8–0.9\n" +
+                "Override           ghi đè sprite đã có hay bỏ qua\n" +
+                "Report Missing     liệt kê những enum chưa có sprite tương ứng"
             );
             GUILayout.Space(4);
         }
@@ -203,48 +161,20 @@ namespace Feeder
                 .ToList();
         }
 
-        private static string NormalizeName(string input, MatchMode mode, char trimSeparator, int trimAfterNth)
-        {
-            if (string.IsNullOrEmpty(input)) return string.Empty;
-
-            string result = input;
-            if (mode.HasFlag(MatchMode.AllLowerCase))
-                result = result.ToLower();
-            if (mode.HasFlag(MatchMode.TrimAfterNthSeparator))
-                result = TrimAfterNthOccurrence(result, trimSeparator, trimAfterNth);
-            if (mode.HasFlag(MatchMode.IgnoreSpecialCharacters))
-                result = Regex.Replace(result, @"[^a-zA-Z0-9]", "");
-            return result;
-        }
-
-        private static string TrimAfterNthOccurrence(string input, char separator, int n)
-        {
-            if (n <= 0) return input;
-            int count = 0;
-            for (int i = 0; i < input.Length; i++)
-            {
-                if (input[i] == separator)
-                {
-                    count++;
-                    if (count == n)
-                        return input.Substring(i + 1);
-                }
-            }
-            return input;
-        }
-
-        private static bool IsMatch(string enumName, string spriteName) => spriteName.Contains(enumName);
-
         private void FillValueTypeToDictionary(object dictionary, Type dictionaryType, Type keyType, List<Sprite> sprites)
         {
             var setItem = dictionaryType.GetMethod("set_Item");
             var containsKey = dictionaryType.GetMethod("ContainsKey");
             var getItem = dictionaryType.GetMethod("get_Item");
 
+            string[] normalizedSprites = new string[sprites.Count];
+            for (int i = 0; i < sprites.Count; i++)
+                normalizedSprites[i] = sprites[i] != null ? FuzzyMatchUtils.Normalize(sprites[i].name) : null;
+
+            var usedIndices = new HashSet<int>();
+
             foreach (var enumValue in Enum.GetValues(keyType))
             {
-                string normEnum = NormalizeName(enumValue.ToString(), keyMatchMode, KeyTrimSeparator, KeyTrimAfterNth);
-
                 if (!OverrideExistingValues)
                 {
                     var hasKey = (bool)containsKey.Invoke(dictionary, new[] { enumValue });
@@ -253,28 +183,40 @@ namespace Feeder
                         var existing = getItem.Invoke(dictionary, new[] { enumValue });
                         if (existing != null)
                         {
-                            Debug.Log($"<color=yellow>Skipping '{normEnum}' - Already has sprite (override disabled)</color>");
-                            setItem.Invoke(dictionary, new[] { enumValue, existing });
+                            Debug.Log($"<color=yellow>Skipping '{enumValue}' - Already has sprite (override disabled)</color>");
                             continue;
                         }
                     }
                 }
 
-                Sprite matchedSprite = null;
-                foreach (var sprite in sprites)
+                string normEnum = FuzzyMatchUtils.Normalize(enumValue.ToString());
+                int bestIndex = -1;
+                float bestScore = 0f;
+
+                for (int i = 0; i < sprites.Count; i++)
                 {
-                    string normSprite = NormalizeName(sprite.name, valueMatchMode, ValueTrimSeparator, ValueTrimAfterNth);
-                    if (IsMatch(normEnum, normSprite))
+                    if (usedIndices.Contains(i) || normalizedSprites[i] == null) continue;
+                    float score = FuzzyMatchUtils.Similarity(normEnum, normalizedSprites[i]);
+                    if (score > bestScore)
                     {
-                        Debug.Log($"<color=cyan>Match found:'{normSprite}' Contains '{normEnum}'</color>");
-                        matchedSprite = sprite;
-                        break;
+                        bestScore = score;
+                        bestIndex = i;
                     }
                 }
 
+                Sprite matchedSprite = null;
+                if (bestIndex >= 0 && bestScore >= _matchThreshold)
+                {
+                    matchedSprite = sprites[bestIndex];
+                    usedIndices.Add(bestIndex);
+                    Debug.Log($"<color=cyan>Match: '{enumValue}' → '{matchedSprite.name}' ({bestScore * 100f:F1}%)</color>");
+                }
+                else
+                {
+                    Debug.Log($"<color=red>No match for '{enumValue}' (best: {bestScore * 100f:F1}%)</color>");
+                }
+
                 setItem.Invoke(dictionary, new[] { enumValue, matchedSprite });
-                if (matchedSprite == null)
-                    Debug.Log($"<color=red>No match found for '{normEnum}' - Added with null sprite</color>");
             }
         }
 
