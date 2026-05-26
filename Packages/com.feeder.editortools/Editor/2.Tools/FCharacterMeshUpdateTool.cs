@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using Sirenix.OdinInspector;
 using UnityEditor;
@@ -7,9 +8,35 @@ namespace Feeder
 {
     public sealed class FCharacterMeshUpdateTool : FBaseTool
     {
+        public enum CollectMode
+        {
+            [LabelText("Skinned Mesh Only")]
+            SkinnedMeshOnly,
+            [LabelText("Mesh Renderer Only")]
+            MeshRendererOnly,
+            [LabelText("Both")]
+            Both
+        }
+
+        public enum ActiveScope
+        {
+            [LabelText("All (include inactive)")]
+            All,
+            [LabelText("Active Only")]
+            ActiveOnly
+        }
+
+        public enum DuplicateNameHandling
+        {
+            [LabelText("Keep All")]
+            KeepAll,
+            [LabelText("Exclude Duplicate Names")]
+            ExcludeDuplicates
+        }
+
         protected override string GetDescription()
         {
-            return "Chuyển SkinnedMeshRenderer / MeshRenderer từ armature cũ sang armature mới. Kéo GameObject nguồn vào Source, chọn Armature đích và Parent, bấm Preview rồi Transfer.";
+            return "Chuyển SkinnedMeshRenderer / MeshRenderer từ armature cũ sang armature mới, giữ nguyên hierarchy gốc. Kéo GameObject nguồn vào Source, chọn Armature đích và Parent, bấm Preview rồi Transfer.";
         }
 
         // ── Source ──────────────────────────────────────────────────────────
@@ -24,21 +51,17 @@ namespace Feeder
 
         [PropertySpace(SpaceBefore = 4)]
         [Title("Find Options")]
-        [LabelText("Only Active GameObjects")]
-        [Tooltip("Chỉ lấy renderer trên những GameObject đang active trong hierarchy")]
-        public bool onlyActiveGameObjects;
+        [LabelText("Collect Mode")]
+        [Tooltip("Loại renderer cần thu thập từ Source")]
+        public CollectMode collectMode = CollectMode.Both;
 
-        [LabelText("Only Skinned Mesh")]
-        [Tooltip("Chỉ thu thập SkinnedMeshRenderer, bỏ qua MeshRenderer")]
-        public bool onlySkinnedMesh;
+        [LabelText("Active Scope")]
+        [Tooltip("All = lấy cả inactive; Active Only = chỉ GameObject đang active trong hierarchy")]
+        public ActiveScope activeScope = ActiveScope.All;
 
-        [LabelText("Only Mesh")]
-        [Tooltip("Chỉ thu thập MeshRenderer, bỏ qua SkinnedMeshRenderer")]
-        public bool onlyMesh;
-
-        [LabelText("Exclude Duplicate Names")]
-        [Tooltip("Nếu nhiều renderer cùng tên, chỉ giữ renderer đầu tiên")]
-        public bool excludeDuplicateNames;
+        [LabelText("Duplicate Names")]
+        [Tooltip("Exclude Duplicate Names = nhiều renderer cùng tên thì chỉ giữ cái đầu tiên")]
+        public DuplicateNameHandling duplicateNameHandling = DuplicateNameHandling.KeepAll;
 
         // ── Transfer Settings ────────────────────────────────────────────────
 
@@ -62,12 +85,14 @@ namespace Feeder
         {
             GUILayout.Space(6);
             StylesUtils.DrawInfoBox(
-                "Hướng dẫn sử dụng:\n" +
-                "  1. Kéo GameObject chứa renderer vào Source GameObjects\n" +
-                "  2. Tuỳ chọn lọc: Only Active / Only Skinned / Only Mesh / Exclude Duplicates\n" +
-                "  3. Chọn New Armature (bone Hips của armature đích)\n" +
-                "  4. Chọn New Parent (transform sẽ chứa các renderer sau khi chuyển)\n" +
-                "  5. Bấm Preview để xem trước, sau đó bấm Transfer để thực hiện"
+                "Source GameObjects   root chứa renderer cần chuyển\n" +
+                "Collect Mode         Skinned Only / Mesh Renderer Only / Both\n" +
+                "Active Scope         All hoặc chỉ GameObject đang active\n" +
+                "Duplicate Names      giữ hết hay bỏ trùng tên (giữ cái đầu)\n" +
+                "New Armature         bone Hips của armature đích\n" +
+                "New Parent           transform parent sau khi chuyển\n" +
+                "Hierarchy            giữ nguyên cấu trúc cha-con từ source\n" +
+                "Preview → Transfer   xem trước rồi thực hiện"
             );
             GUILayout.Space(4);
         }
@@ -92,7 +117,6 @@ namespace Feeder
         [GUIColor(0.6f, 1f, 0.6f)]
         private void PreviewFindMesh()
         {
-            if (!ValidateFindOptions()) return;
             CollectRenderersFromSources();
             Debug.Log($"[CharacterMeshUpdate] Preview: {foundSkinnedMeshRenderers.Length} SkinnedMeshRenderer(s), {foundMeshRenderers.Length} MeshRenderer(s).");
         }
@@ -109,23 +133,48 @@ namespace Feeder
                 throw new System.InvalidOperationException("New Armature is not assigned.");
             if (newParent == null)
                 throw new System.InvalidOperationException("New Parent is not assigned.");
-            if (!ValidateFindOptions()) return;
 
             CollectRenderersFromSources();
 
-            var armatureMap = BuildArmatureMap(newArmature);
+            Transform[] armatureMap = BuildArmatureMap(newArmature);
             int successCount = 0;
             int failCount = 0;
 
             Undo.SetCurrentGroupName("Transfer Meshes");
             int undoGroup = Undo.GetCurrentGroup();
 
-            foreach (var smr in foundSkinnedMeshRenderers)
+            HashSet<Transform> resolvedMoveRoots = new HashSet<Transform>();
+            List<SkinnedMeshRenderer> skinnedRenderersToRemap = new List<SkinnedMeshRenderer>();
+
+            foreach (SkinnedMeshRenderer smr in foundSkinnedMeshRenderers)
             {
                 if (smr == null) continue;
                 try
                 {
-                    TransferSkinnedMeshRenderer(smr, armatureMap, newParent);
+                    Transform moveRoot = ResolveHierarchyMoveRoot(smr.transform);
+                    resolvedMoveRoots.Add(moveRoot);
+                    skinnedRenderersToRemap.Add(smr);
+                }
+                catch (System.Exception e)
+                {
+                    Debug.LogError($"[CharacterMeshUpdate] Failed to resolve hierarchy for '{smr.name}': {e.Message}");
+                    failCount++;
+                }
+            }
+
+            List<Transform> outerMoveRoots = FilterOutNestedMoveRoots(resolvedMoveRoots);
+            foreach (Transform moveRoot in outerMoveRoots)
+            {
+                Undo.RecordObject(moveRoot, "Transfer Hierarchy");
+                moveRoot.SetParent(newParent, false);
+                moveRoot.localPosition = Vector3.zero;
+            }
+
+            foreach (SkinnedMeshRenderer smr in skinnedRenderersToRemap)
+            {
+                try
+                {
+                    RemapSkinnedMeshRendererBones(smr, armatureMap);
                     successCount++;
                 }
                 catch (System.Exception e)
@@ -135,7 +184,7 @@ namespace Feeder
                 }
             }
 
-            foreach (var mr in foundMeshRenderers)
+            foreach (MeshRenderer mr in foundMeshRenderers)
             {
                 if (mr == null) continue;
                 try
@@ -154,7 +203,7 @@ namespace Feeder
             EditorUtility.SetDirty(newParent);
 
             if (failCount == 0)
-                Debug.Log($"<color=green>[CharacterMeshUpdate] Successfully transferred {successCount} renderer(s).</color>");
+                Debug.Log($"<color=green>[CharacterMeshUpdate] Transferred {successCount} renderer(s), moved {outerMoveRoots.Count} hierarchy subtree(s).</color>");
             else
                 Debug.LogWarning($"[CharacterMeshUpdate] Transferred {successCount} renderer(s). Failed: {failCount}. See above errors for details.");
         }
@@ -165,10 +214,9 @@ namespace Feeder
         private void ClearAll()
         {
             sourceGameObjects = new GameObject[0];
-            onlyActiveGameObjects = false;
-            onlySkinnedMesh = false;
-            onlyMesh = false;
-            excludeDuplicateNames = false;
+            collectMode = CollectMode.Both;
+            activeScope = ActiveScope.All;
+            duplicateNameHandling = DuplicateNameHandling.KeepAll;
             foundSkinnedMeshRenderers = new SkinnedMeshRenderer[0];
             foundMeshRenderers = new MeshRenderer[0];
             newArmature = null;
@@ -177,57 +225,41 @@ namespace Feeder
 
         // ── Private helpers ──────────────────────────────────────────────────
 
-        private bool ValidateFindOptions()
-        {
-            if (onlySkinnedMesh && onlyMesh)
-            {
-                Debug.LogError("[CharacterMeshUpdate] 'Only Skinned Mesh' and 'Only Mesh' cannot both be enabled at the same time.");
-                return false;
-            }
-            return true;
-        }
-
         private void CollectRenderersFromSources()
         {
-            var sources = sourceGameObjects.Where(s => s != null);
+            IEnumerable<GameObject> sources = sourceGameObjects.Where(s => s != null);
 
             SkinnedMeshRenderer[] skinnedRenderers;
             MeshRenderer[] meshRenderers;
 
-            skinnedRenderers = onlyMesh
+            skinnedRenderers = collectMode == CollectMode.MeshRendererOnly
                 ? new SkinnedMeshRenderer[0]
                 : sources.SelectMany(s => s.GetComponentsInChildren<SkinnedMeshRenderer>(true)).Distinct().ToArray();
 
-            meshRenderers = onlySkinnedMesh
+            meshRenderers = collectMode == CollectMode.SkinnedMeshOnly
                 ? new MeshRenderer[0]
                 : sources.SelectMany(s => s.GetComponentsInChildren<MeshRenderer>(true)).Distinct().ToArray();
 
-            if (onlyActiveGameObjects)
+            if (activeScope == ActiveScope.ActiveOnly)
             {
                 skinnedRenderers = skinnedRenderers.Where(r => r?.gameObject.activeInHierarchy == true).ToArray();
                 meshRenderers = meshRenderers.Where(r => r?.gameObject.activeInHierarchy == true).ToArray();
             }
 
-            if (excludeDuplicateNames)
+            if (duplicateNameHandling == DuplicateNameHandling.ExcludeDuplicates)
             {
-                skinnedRenderers = RemoveDuplicateNames(skinnedRenderers);
-                meshRenderers = RemoveDuplicateNames(meshRenderers);
+                skinnedRenderers = RemoveDuplicatesByName(skinnedRenderers);
+                meshRenderers = RemoveDuplicatesByName(meshRenderers);
             }
 
             foundSkinnedMeshRenderers = skinnedRenderers;
             foundMeshRenderers = meshRenderers;
         }
 
-        private static SkinnedMeshRenderer[] RemoveDuplicateNames(SkinnedMeshRenderer[] renderers)
+        private static T[] RemoveDuplicatesByName<T>(T[] renderers) where T : Renderer
         {
-            var seen = new System.Collections.Generic.HashSet<string>();
-            return renderers.Where(r => r?.name != null && seen.Add(r.name)).ToArray();
-        }
-
-        private static MeshRenderer[] RemoveDuplicateNames(MeshRenderer[] renderers)
-        {
-            var seen = new System.Collections.Generic.HashSet<string>();
-            return renderers.Where(r => r?.name != null && seen.Add(r.name)).ToArray();
+            HashSet<string> seen = new HashSet<string>();
+            return renderers.Where(r => r != null && seen.Add(r.name)).ToArray();
         }
 
         private static Transform[] BuildArmatureMap(Transform armatureRoot)
@@ -235,49 +267,84 @@ namespace Feeder
             return armatureRoot.GetComponentsInChildren<Transform>(true);
         }
 
-        private static void TransferSkinnedMeshRenderer(
-            SkinnedMeshRenderer smr,
-            Transform[] armatureMap,
-            Transform newParentTransform)
+        private Transform ResolveHierarchyMoveRoot(Transform rendererTransform)
         {
-            var rootBoneName = smr.rootBone?.name;
+            foreach (GameObject source in sourceGameObjects)
+            {
+                if (source == null) continue;
+                if (!rendererTransform.IsChildOf(source.transform)) continue;
+
+                if (rendererTransform == source.transform)
+                    return rendererTransform;
+
+                return HierarchyPathResolver.FindDirectChildOfAncestor(source.transform, rendererTransform);
+            }
+
+            throw new System.InvalidOperationException(
+                $"Renderer '{rendererTransform.name}' not found in any source.");
+        }
+
+        private static List<Transform> FilterOutNestedMoveRoots(HashSet<Transform> moveRoots)
+        {
+            List<Transform> outerRoots = new List<Transform>(moveRoots.Count);
+            foreach (Transform candidate in moveRoots)
+            {
+                bool nestedUnderAnotherMoveRoot = false;
+                foreach (Transform other in moveRoots)
+                {
+                    if (other == candidate) continue;
+                    if (candidate.IsChildOf(other))
+                    {
+                        nestedUnderAnotherMoveRoot = true;
+                        break;
+                    }
+                }
+
+                if (!nestedUnderAnotherMoveRoot)
+                    outerRoots.Add(candidate);
+            }
+
+            return outerRoots;
+        }
+
+        private static void RemapSkinnedMeshRendererBones(
+            SkinnedMeshRenderer smr,
+            Transform[] armatureMap)
+        {
+            string rootBoneName = smr.rootBone?.name;
             if (string.IsNullOrEmpty(rootBoneName))
                 throw new System.Exception("Root bone is missing.");
 
-            var newBones = new Transform[smr.bones.Length];
+            Transform[] newBones = new Transform[smr.bones.Length];
             for (int i = 0; i < smr.bones.Length; i++)
             {
-                var boneName = smr.bones[i]?.name;
+                string boneName = smr.bones[i]?.name;
                 if (string.IsNullOrEmpty(boneName))
                     throw new System.Exception($"Bone at index {i} is missing.");
 
-                var newBone = armatureMap.FirstOrDefault(t => t.name == boneName);
+                Transform newBone = armatureMap.FirstOrDefault(t => t.name == boneName);
                 if (newBone == null)
                     throw new System.Exception($"Bone not found in new armature: '{boneName}'");
 
                 newBones[i] = newBone;
             }
 
-            var matchingRootBone = armatureMap.FirstOrDefault(t => t.name == rootBoneName);
+            Transform matchingRootBone = armatureMap.FirstOrDefault(t => t.name == rootBoneName);
             if (matchingRootBone == null)
                 throw new System.Exception($"Root bone not found in new armature: '{rootBoneName}'");
 
-            Undo.RecordObject(smr, "Transfer SkinnedMeshRenderer");
-            Undo.RecordObject(smr.transform, "Transfer SkinnedMeshRenderer");
-
+            Undo.RecordObject(smr, "Remap Bones");
             smr.rootBone = matchingRootBone;
             smr.bones = newBones;
-            smr.transform.SetParent(newParentTransform, false);
-            smr.transform.localPosition = Vector3.zero;
         }
 
         private static void TransferMeshRenderer(MeshRenderer mr, Transform[] armatureMap)
         {
-            var parentName = mr.transform.parent?.name;
+            string parentName = mr.transform.parent?.name;
             if (string.IsNullOrEmpty(parentName))
                 throw new System.Exception("Parent bone is missing.");
 
-            var targetParent = armatureMap.FirstOrDefault(t => t.name == parentName);
+            Transform targetParent = armatureMap.FirstOrDefault(t => t.name == parentName);
             if (targetParent == null)
                 throw new System.Exception($"Parent bone not found in new armature: '{parentName}'");
 

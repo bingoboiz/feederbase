@@ -30,6 +30,20 @@ namespace Feeder
             return string.Join("/", segments);
         }
 
+        public static Transform FindDirectChildOfAncestor(Transform ancestor, Transform descendant)
+        {
+            if (descendant == ancestor)
+                throw new InvalidOperationException("descendant is the ancestor itself.");
+            if (!descendant.IsChildOf(ancestor))
+                throw new InvalidOperationException($"'{descendant.name}' is not under '{ancestor.name}'.");
+
+            Transform walk = descendant;
+            while (walk.parent != ancestor)
+                walk = walk.parent;
+
+            return walk;
+        }
+
         public static Transform ResolveTargetByPath(Transform root, string path)
         {
             if (root == null)
