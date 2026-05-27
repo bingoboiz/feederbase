@@ -460,6 +460,45 @@ namespace Feeder
             {
                 AssetDatabase.StopAssetEditing();
             }
+
+            foreach (var entry in assetEntries.Values)
+                TryRenameTextureSprites(entry);
+        }
+
+        private static void TryRenameTextureSprites(AssetRenameEntry entry)
+        {
+            var dir = Path.GetDirectoryName(entry.AssetPath)?.Replace('\\', '/') ?? "";
+            var ext = Path.GetExtension(entry.AssetPath);
+            var newPath = string.IsNullOrEmpty(dir)
+                ? entry.NewName + ext
+                : dir + "/" + entry.NewName + ext;
+
+            var importer = AssetImporter.GetAtPath(newPath) as TextureImporter;
+            if (importer == null) return;
+
+            if (importer.spriteImportMode == SpriteImportMode.Multiple)
+            {
+                var spritesheet = importer.spritesheet;
+                bool changed = false;
+                for (int i = 0; i < spritesheet.Length; i++)
+                {
+                    if (!spritesheet[i].name.StartsWith(entry.OldName)) continue;
+                    var data = spritesheet[i];
+                    data.name = entry.NewName + data.name.Substring(entry.OldName.Length);
+                    spritesheet[i] = data;
+                    changed = true;
+                }
+                if (changed)
+                {
+                    importer.spritesheet = spritesheet;
+                    importer.SaveAndReimport();
+                }
+            }
+            else if (importer.spriteImportMode == SpriteImportMode.Single)
+            {
+                // Force reimport so Unity re-derives the sprite sub-asset name from the new file name.
+                importer.SaveAndReimport();
+            }
         }
 
         private static void ApplySceneObjectRenames(Dictionary<int, SceneObjectRenameEntry> sceneEntries)

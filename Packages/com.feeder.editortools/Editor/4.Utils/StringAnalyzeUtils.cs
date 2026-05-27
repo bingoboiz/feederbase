@@ -44,8 +44,20 @@ namespace Feeder
             }
 
             AppendSegment(patternParts, splitNames, previousPositions, null);
+            MergeConsecutiveVariants(patternParts);
 
             return string.Join("_", patternParts);
+        }
+
+        private static void MergeConsecutiveVariants(List<string> parts)
+        {
+            for (int i = parts.Count - 1; i > 0; i--)
+            {
+                if (parts[i] == "{variant}" && parts[i - 1] == "{variant}")
+                {
+                    parts.RemoveAt(i);
+                }
+            }
         }
 
         private static bool IsNumericToken(string token)

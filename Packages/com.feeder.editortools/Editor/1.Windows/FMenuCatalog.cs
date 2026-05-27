@@ -15,6 +15,7 @@ namespace Feeder
         public const string BatchSortOrderToolPath = AssetRoot + "Sort Order Tool";
         public const string BatchRenameToolPath = AssetRoot + "Rename Tool";
         public const string AssetOrganizerToolPath = AssetRoot + "Asset Organizer Tool";
+        public const string AssetGroupToolPath = AssetRoot + "Asset Group Tool";
         public const string DataFillerToolPath = AssetRoot + "Data Filler Tool";
         public const string CharacterMeshUpdaterToolPath = AssetRoot + "Character Mesh Updater Tool";
         public const string DataClonerToolPath = AssetRoot + "Data Cloner Tool";
@@ -50,6 +51,7 @@ namespace Feeder
             tree.Add(BatchComponentReplacerToolPath, ScriptableObject.CreateInstance<FComponentReplacerTool>(), FeederIconCatalog.ComponentReplacerToolIcon);
             tree.Add(BatchMissingComponentToolPath, ScriptableObject.CreateInstance<FMissingComponentHandlerTool>(), FeederIconCatalog.MissingScriptHandlerToolIcon);
 
+            tree.Add(AssetGroupToolPath, ScriptableObject.CreateInstance<FAssetGroupTool>(), FeederIconCatalog.AssetGroupToolIcon);
             tree.Add(DataFillerToolPath, ScriptableObject.CreateInstance<FDataFillerTool>(), FeederIconCatalog.ScriptableObjectsFillerToolIcon);
             tree.Add(CharacterMeshUpdaterToolPath, ScriptableObject.CreateInstance<FCharacterMeshUpdateTool>(), FeederIconCatalog.CharacterMeshUpdaterToolIcon);
             tree.Add(DataClonerToolPath, ScriptableObject.CreateInstance<FDataClonerTool>(), FeederIconCatalog.DataClonerToolIcon);

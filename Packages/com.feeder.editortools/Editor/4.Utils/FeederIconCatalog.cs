@@ -14,6 +14,7 @@ namespace Feeder
         public const SdfIconType AssetOrganizerToolIcon = SdfIconType.FolderCheck;
         public const SdfIconType SortOrderToolIcon = SdfIconType.SortAlphaDown;
         public const SdfIconType RenameToolIcon = SdfIconType.PencilSquare;
+        public const SdfIconType AssetGroupToolIcon = SdfIconType.Collection;
         public const SdfIconType ComponentModifyToolIcon = SdfIconType.Sliders;
         public const SdfIconType PrefabModifyToolIcon = SdfIconType.Sliders;
         public const SdfIconType PrefabVariantCreatorToolIcon = SdfIconType.Files;
