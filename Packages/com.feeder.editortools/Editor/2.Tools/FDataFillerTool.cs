@@ -5,17 +5,47 @@ using System.Reflection;
 using Sirenix.OdinInspector;
 using UnityEditor;
 using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Feeder
 {
     public sealed class FDataFillerTool : FTargetScriptableObjectToolBase
     {
-        protected override string GetDescription()
+        [Serializable]
+        private sealed class MatchPreviewRow
         {
-            return "Tự điền Dictionary<Enum, Sprite> trong ScriptableObject bằng cách khớp mờ tên enum với sprite trong thư mục. Dùng Match Threshold để tinh chỉnh độ nhạy khớp.";
+            [TableColumnWidth(200, Resizable = true)]
+            [ReadOnly]
+            public string EnumName;
+
+            [TableColumnWidth(80, Resizable = false)]
+            [ReadOnly]
+            [SuffixLabel("%")]
+            [DisplayAsString]
+            public string Score;
+
+            [AssetSelector(Paths = "Assets")]
+            public Sprite Sprite;
         }
 
-        [BoxGroup("Target SO")]
+        private enum MatchStatus { Matched, FallbackDefault, Skipped }
+
+        private sealed class EnumMatchResult
+        {
+            public object EnumValue;
+            public string EnumName;
+            public Sprite AssignedSprite;
+            public float BestScore;
+            public MatchStatus Status;
+        }
+
+        protected override string GetDescription()
+        {
+            return "Tự điền Dictionary<Enum, Sprite> trong ScriptableObject bằng cách khớp mờ tên enum với sprite trong TargetAssets. " +
+                   "Asset Default (optional) dùng cho enum không khớp. Preview Match xem bảng map trước; Fill Dictionary ghi vào field đã chọn.";
+        }
+
+        [PropertyOrder(-910)]
         [AssetSelector(Paths = "Assets")]
         [ShowInInspector]
         public new ScriptableObject TargetSO
@@ -24,46 +54,99 @@ namespace Feeder
             set => base.TargetSO = value;
         }
 
-        [BoxGroup("Settings")]
-        [FolderPath(AbsolutePath = false)]
+        [PropertyOrder(-900)]
+        [ListDrawerSettings(ShowFoldout = true, DraggableItems = true, ShowIndexLabels = true, NumberOfItemsPerPage = 10)]
+        [OnValueChanged(nameof(HandleTargetAssetsChanged))]
         [ShowInInspector]
-        public string SearchFolder = "Assets/";
+        public List<Object> TargetAssets
+        {
+            get => GetDataContainer().TargetAssets;
+            set
+            {
+                FDataContainer container = GetDataContainer();
+                container.TargetAssets.Clear();
+                if (value != null)
+                    container.TargetAssets.AddRange(value);
+                FDataPersistenceService.SaveData(container);
+            }
+        }
 
+        [PropertyOrder(-880)]
+        [PropertySpace(SpaceBefore = 8)]
+        [LabelText("Dictionary Field")]
         [ValueDropdown(nameof(GetDictionaryFields))]
-        [BoxGroup("Settings")]
         [ShowInInspector]
         public string SelectedFieldName;
 
-        [BoxGroup("Settings")]
+        [PropertyOrder(-870)]
+        [PropertySpace(SpaceBefore = 6)]
         [LabelText("Match Threshold (0–1)")]
         [Range(0f, 1f)]
         [SerializeField]
         private float _matchThreshold = 0.8f;
 
-        [BoxGroup("Override Settings")]
+        [PropertyOrder(-860)]
+        [PropertySpace(SpaceBefore = 6)]
         [LabelText("Override Existing Values")]
         [Tooltip("If true, will override existing sprite values. If false, will skip enum values that already have sprites.")]
         [ShowInInspector]
         public bool OverrideExistingValues = true;
 
+        [PropertyOrder(-855)]
+        [PropertySpace(SpaceBefore = 6)]
+        [LabelText("Asset Default (Optional)")]
+        [AssetSelector(Paths = "Assets")]
+        [ShowInInspector]
+        public Sprite AssetDefault;
+
+        [PropertyOrder(-850)]
         [OnInspectorGUI]
         private void DrawGuide()
         {
             GUILayout.Space(2);
             StylesUtils.DrawInfoBox(
-                "Match Threshold    ngưỡng độ khớp tối thiểu (0–1), thường để 0.8–0.9\n" +
-                "Override           ghi đè sprite đã có hay bỏ qua\n" +
-                "Report Missing     liệt kê những enum chưa có sprite tương ứng"
+                "Target SO         ScriptableObject chứa Dictionary<Enum, Sprite>\n" +
+                "Target Assets     kéo sprite cần khớp vào đây\n" +
+                "Match Threshold   ngưỡng độ khớp tối thiểu (0–1), thường để 0.8–0.9\n" +
+                "Override          ghi đè sprite đã có hay bỏ qua\n" +
+                "Asset Default     sprite dự phòng cho enum không khớp (để trống = null)\n" +
+                "Preview Match     xem bảng enum → sprite kèm % khớp (null = thiếu)\n" +
+                "Fill Dictionary   ghi kết quả khớp vào field đã chọn"
             );
             GUILayout.Space(4);
         }
 
-        [Button(ButtonSizes.Large)]
+        [PropertyOrder(50)]
+        [PropertySpace(SpaceBefore = 10)]
+        [ButtonGroup("FillActions")]
+        [Button("Preview Match", ButtonSizes.Medium)]
+        private void PreviewMatch()
+        {
+            if (!TryResolveDictionaryField(out FieldInfo fieldInfo, out Type dictionaryType, out Type keyType))
+                return;
+
+            List<Sprite> sprites = CollectSpritesFromTargetAssets();
+            object dictionary = fieldInfo.GetValue(TargetSO);
+            List<EnumMatchResult> matches = ComputeMatches(keyType, sprites, dictionary, dictionaryType);
+
+            _previewRows = matches.Select(m => new MatchPreviewRow
+            {
+                EnumName = m.EnumName,
+                Score    = FormatMatchScore(m),
+                Sprite   = m.AssignedSprite,
+            }).ToList();
+        }
+
+        [PropertyOrder(50)]
+        [ButtonGroup("FillActions")]
+        [Button("Fill Dictionary", ButtonSizes.Medium)]
         [GUIColor(0.3f, 0.8f, 1f)]
         public void FillDictionary()
         {
-            if (!CheckBeforeFilling(out var fieldInfo, out var dictionaryType, out var keyType))
+            if (!TryResolveDictionaryField(out FieldInfo fieldInfo, out Type dictionaryType, out Type keyType))
                 return;
+
+            List<Sprite> sprites = CollectSpritesFromTargetAssets();
 
             Undo.RegisterCompleteObjectUndo(TargetSO, "Fill Dictionary");
             object dictionary = fieldInfo.GetValue(TargetSO);
@@ -73,49 +156,42 @@ namespace Feeder
                 fieldInfo.SetValue(TargetSO, dictionary);
             }
 
-            var sprites = LoadSpritesFromFolder();
-            FillValueTypeToDictionary(dictionary, dictionaryType, keyType, sprites);
+            List<EnumMatchResult> matches = ComputeMatches(keyType, sprites, dictionary, dictionaryType);
+            MethodInfo setItem = dictionaryType.GetMethod("set_Item");
+
+            foreach (EnumMatchResult match in matches)
+            {
+                if (match.Status == MatchStatus.Skipped)
+                {
+                    Debug.Log($"<color=yellow>Skipping '{match.EnumValue}' — already has sprite (override disabled)</color>");
+                    continue;
+                }
+
+                setItem.Invoke(dictionary, new[] { match.EnumValue, match.AssignedSprite });
+                LogMatchResult(match);
+            }
 
             EditorUtility.SetDirty(TargetSO);
             AssetDatabase.SaveAssets();
             Debug.Log("Dictionary filled successfully!");
         }
 
-        [Button(ButtonSizes.Large)]
-        [GUIColor(1f, 0.5f, 0.5f)]
-        public void ReportMissingValues()
+        [PropertyOrder(100)]
+        [PropertySpace(SpaceBefore = 10)]
+        [ShowIf(nameof(HasPreviewRows))]
+        [TableList(ShowIndexLabels = true, IsReadOnly = false, NumberOfItemsPerPage = 15, AlwaysExpanded = true, ShowPaging = true)]
+        [LabelText("Enum → Sprite preview")]
+        [SerializeField]
+        private List<MatchPreviewRow> _previewRows = new List<MatchPreviewRow>();
+
+        private bool HasPreviewRows => _previewRows?.Count > 0;
+
+        private void HandleTargetAssetsChanged()
         {
-            if (TargetSO == null)
-            {
-                Debug.LogError("Target ScriptableObject not set!");
-                return;
-            }
-
-            var logLines = new List<string>();
-            var dictionaryFields = TargetSO.GetType()
-                .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                .Where(f => f.FieldType.IsGenericType &&
-                            f.FieldType.GetGenericTypeDefinition() == typeof(Dictionary<,>) &&
-                            f.FieldType.GetGenericArguments()[0].IsEnum &&
-                            f.FieldType.GetGenericArguments()[1] == typeof(Sprite));
-
-            foreach (var field in dictionaryFields)
-            {
-                var missingValues = CollectMissingValues(field, TargetSO);
-                if (missingValues.Count > 0)
-                {
-                    logLines.Add($"================= {field.Name} ==================");
-                    logLines.AddRange(missingValues);
-                }
-            }
-
-            if (logLines.Count > 0)
-                Debug.Log(string.Join("\n", logLines));
-            else
-                Debug.Log("No missing values found!");
+            FDataPersistenceService.SaveData(GetDataContainer());
         }
 
-        private bool CheckBeforeFilling(out FieldInfo fieldInfo, out Type dictionaryType, out Type keyType)
+        private bool TryResolveDictionaryField(out FieldInfo fieldInfo, out Type dictionaryType, out Type keyType)
         {
             fieldInfo = null;
             dictionaryType = null;
@@ -143,7 +219,7 @@ namespace Feeder
             }
 
             keyType = dictionaryType.GetGenericArguments()[0];
-            var valueType = dictionaryType.GetGenericArguments()[1];
+            Type valueType = dictionaryType.GetGenericArguments()[1];
             if (!keyType.IsEnum || valueType != typeof(Sprite))
             {
                 Debug.LogError("Dictionary must be Dictionary<Enum, Sprite>!");
@@ -153,109 +229,194 @@ namespace Feeder
             return true;
         }
 
-        private List<Sprite> LoadSpritesFromFolder()
+        // Supports both direct Sprite assets and Texture2D parent assets (loads all Sprite sub-assets).
+        private List<Sprite> CollectSpritesFromTargetAssets()
         {
-            var guids = AssetDatabase.FindAssets("t:Sprite", new[] { SearchFolder });
-            return guids
-                .Select(g => AssetDatabase.LoadAssetAtPath<Sprite>(AssetDatabase.GUIDToAssetPath(g)))
-                .ToList();
-        }
+            if (TargetAssets == null)
+                throw new InvalidOperationException("TargetAssets is null.");
 
-        private void FillValueTypeToDictionary(object dictionary, Type dictionaryType, Type keyType, List<Sprite> sprites)
-        {
-            var setItem = dictionaryType.GetMethod("set_Item");
-            var containsKey = dictionaryType.GetMethod("ContainsKey");
-            var getItem = dictionaryType.GetMethod("get_Item");
-
-            string[] normalizedSprites = new string[sprites.Count];
-            for (int i = 0; i < sprites.Count; i++)
-                normalizedSprites[i] = sprites[i] != null ? FuzzyMatchUtils.Normalize(sprites[i].name) : null;
-
-            var usedIndices = new HashSet<int>();
-
-            foreach (var enumValue in Enum.GetValues(keyType))
+            List<Sprite> sprites = new List<Sprite>(TargetAssets.Count);
+            for (int i = 0; i < TargetAssets.Count; i++)
             {
-                if (!OverrideExistingValues)
+                Object asset = TargetAssets[i];
+                if (asset == null) continue;
+
+                if (asset is Sprite sprite)
                 {
-                    var hasKey = (bool)containsKey.Invoke(dictionary, new[] { enumValue });
-                    if (hasKey)
-                    {
-                        var existing = getItem.Invoke(dictionary, new[] { enumValue });
-                        if (existing != null)
-                        {
-                            Debug.Log($"<color=yellow>Skipping '{enumValue}' - Already has sprite (override disabled)</color>");
-                            continue;
-                        }
-                    }
-                }
-
-                string normEnum = FuzzyMatchUtils.Normalize(enumValue.ToString());
-                int bestIndex = -1;
-                float bestScore = 0f;
-
-                for (int i = 0; i < sprites.Count; i++)
-                {
-                    if (usedIndices.Contains(i) || normalizedSprites[i] == null) continue;
-                    float score = FuzzyMatchUtils.Similarity(normEnum, normalizedSprites[i]);
-                    if (score > bestScore)
-                    {
-                        bestScore = score;
-                        bestIndex = i;
-                    }
-                }
-
-                Sprite matchedSprite = null;
-                if (bestIndex >= 0 && bestScore >= _matchThreshold)
-                {
-                    matchedSprite = sprites[bestIndex];
-                    usedIndices.Add(bestIndex);
-                    Debug.Log($"<color=cyan>Match: '{enumValue}' → '{matchedSprite.name}' ({bestScore * 100f:F1}%)</color>");
-                }
-                else
-                {
-                    Debug.Log($"<color=red>No match for '{enumValue}' (best: {bestScore * 100f:F1}%)</color>");
-                }
-
-                setItem.Invoke(dictionary, new[] { enumValue, matchedSprite });
-            }
-        }
-
-        private static List<string> CollectMissingValues(FieldInfo field, ScriptableObject target)
-        {
-            var missingValues = new List<string>();
-            var dictionary = field.GetValue(target);
-            var dictionaryType = field.FieldType;
-            var keyType = dictionaryType.GetGenericArguments()[0];
-
-            if (dictionary == null)
-            {
-                foreach (var enumValue in Enum.GetValues(keyType))
-                    missingValues.Add(enumValue.ToString());
-                return missingValues;
-            }
-
-            var containsKeyMethod = dictionaryType.GetMethod("ContainsKey");
-            var getItemMethod = dictionaryType.GetMethod("get_Item");
-
-            foreach (var enumValue in Enum.GetValues(keyType))
-            {
-                var hasKey = (bool)containsKeyMethod.Invoke(dictionary, new[] { enumValue });
-                if (!hasKey)
-                {
-                    missingValues.Add(enumValue.ToString());
+                    sprites.Add(sprite);
                     continue;
                 }
-                var value = getItemMethod.Invoke(dictionary, new[] { enumValue });
-                if (value == null)
-                    missingValues.Add(enumValue.ToString());
+
+                if (asset is Texture2D)
+                {
+                    string path = AssetDatabase.GetAssetPath(asset);
+                    Object[] subAssets = AssetDatabase.LoadAllAssetsAtPath(path);
+                    foreach (Object sub in subAssets)
+                    {
+                        if (sub is Sprite subSprite)
+                            sprites.Add(subSprite);
+                    }
+                }
             }
 
-            return missingValues;
+            if (sprites.Count == 0)
+                Debug.LogWarning("No sprites found in TargetAssets. Make sure you added Sprite or Texture2D assets.");
+
+            return sprites;
+        }
+
+        // Globally-optimal greedy assignment:
+        // 1. Score all (enum, sprite) pairs
+        // 2. Sort descending by score
+        // 3. Assign from highest score — skip if enum or sprite already taken
+        // This ensures the best match globally wins regardless of enum definition order.
+        private List<EnumMatchResult> ComputeMatches(Type keyType, List<Sprite> sprites, object dictionary, Type dictionaryType)
+        {
+            Array enumValues = Enum.GetValues(keyType);
+            int enumCount  = enumValues.Length;
+            int spriteCount = sprites.Count;
+
+            string[] normalizedEnums = new string[enumCount];
+            for (int i = 0; i < enumCount; i++)
+                normalizedEnums[i] = FuzzyMatchUtils.Normalize(enumValues.GetValue(i).ToString());
+
+            string[] normalizedSprites = new string[spriteCount];
+            for (int i = 0; i < spriteCount; i++)
+                normalizedSprites[i] = sprites[i] != null ? FuzzyMatchUtils.Normalize(sprites[i].name) : null;
+
+            // Determine which enums to skip (override disabled + already has a non-null sprite)
+            Sprite[] skipSprites = new Sprite[enumCount];
+            if (!OverrideExistingValues && dictionary != null)
+            {
+                MethodInfo containsKey = dictionaryType.GetMethod("ContainsKey");
+                MethodInfo getItem     = dictionaryType.GetMethod("get_Item");
+                for (int i = 0; i < enumCount; i++)
+                {
+                    object enumValue = enumValues.GetValue(i);
+                    bool hasKey = (bool)containsKey.Invoke(dictionary, new[] { enumValue });
+                    if (!hasKey) continue;
+                    Sprite existing = (Sprite)getItem.Invoke(dictionary, new[] { enumValue });
+                    if (existing != null)
+                        skipSprites[i] = existing;
+                }
+            }
+
+            // Build all (enumIdx, spriteIdx, score) pairs for non-skipped enums
+            var candidates = new List<(int enumIdx, int spriteIdx, float score)>();
+            for (int e = 0; e < enumCount; e++)
+            {
+                if (skipSprites[e] != null) continue;
+                for (int s = 0; s < spriteCount; s++)
+                {
+                    if (normalizedSprites[s] == null) continue;
+                    float score = FuzzyMatchUtils.Similarity(normalizedEnums[e], normalizedSprites[s]);
+                    candidates.Add((e, s, score));
+                }
+            }
+
+            // Track best raw score per enum for display on fallback rows
+            float[] bestRawScores = new float[enumCount];
+            foreach ((int e, int s, float score) in candidates)
+            {
+                if (score > bestRawScores[e])
+                    bestRawScores[e] = score;
+            }
+
+            // Sort descending — highest-confidence pairs assigned first
+            candidates.Sort((a, b) => b.score.CompareTo(a.score));
+
+            var assignedEnums   = new HashSet<int>();
+            var assignedSprites = new HashSet<int>();
+            var assignments     = new Dictionary<int, (int spriteIdx, float score)>();
+
+            foreach ((int e, int s, float score) in candidates)
+            {
+                if (score < _matchThreshold) break;
+                if (assignedEnums.Contains(e) || assignedSprites.Contains(s)) continue;
+
+                assignments[e] = (s, score);
+                assignedEnums.Add(e);
+                assignedSprites.Add(s);
+            }
+
+            // Build result in enum definition order
+            var results = new List<EnumMatchResult>(enumCount);
+            for (int i = 0; i < enumCount; i++)
+            {
+                object enumValue = enumValues.GetValue(i);
+                string enumName  = enumValue.ToString();
+
+                if (skipSprites[i] != null)
+                {
+                    results.Add(new EnumMatchResult
+                    {
+                        EnumValue      = enumValue,
+                        EnumName       = enumName,
+                        AssignedSprite = skipSprites[i],
+                        Status         = MatchStatus.Skipped,
+                    });
+                    continue;
+                }
+
+                if (assignments.TryGetValue(i, out (int spriteIdx, float score) match))
+                {
+                    results.Add(new EnumMatchResult
+                    {
+                        EnumValue      = enumValue,
+                        EnumName       = enumName,
+                        AssignedSprite = sprites[match.spriteIdx],
+                        BestScore      = match.score,
+                        Status         = MatchStatus.Matched,
+                    });
+                    continue;
+                }
+
+                results.Add(new EnumMatchResult
+                {
+                    EnumValue      = enumValue,
+                    EnumName       = enumName,
+                    AssignedSprite = AssetDefault,
+                    BestScore      = bestRawScores[i],
+                    Status         = MatchStatus.FallbackDefault,
+                });
+            }
+
+            return results;
+        }
+
+        private string FormatMatchScore(EnumMatchResult match)
+        {
+            switch (match.Status)
+            {
+                case MatchStatus.Skipped:         return "skip";
+                case MatchStatus.Matched:          return $"{match.BestScore * 100f:F1}";
+                case MatchStatus.FallbackDefault:
+                    if (AssetDefault != null)      return "default";
+                    return match.BestScore > 0f ? $"{match.BestScore * 100f:F1}" : "—";
+                default:                           return "—";
+            }
+        }
+
+        private void LogMatchResult(EnumMatchResult match)
+        {
+            switch (match.Status)
+            {
+                case MatchStatus.Matched:
+                    Debug.Log($"<color=cyan>Match: '{match.EnumValue}' → '{match.AssignedSprite.name}' ({match.BestScore * 100f:F1}%)</color>");
+                    break;
+                case MatchStatus.FallbackDefault when AssetDefault != null:
+                    Debug.Log($"<color=orange>Default: '{match.EnumValue}' → '{AssetDefault.name}' (best: {match.BestScore * 100f:F1}%)</color>");
+                    break;
+                default:
+                    Debug.Log($"<color=red>No match for '{match.EnumValue}' (best: {match.BestScore * 100f:F1}%)</color>");
+                    break;
+            }
         }
 
         private IEnumerable<string> GetDictionaryFields()
         {
-            if (TargetSO == null) return Enumerable.Empty<string>();
+            if (TargetSO == null)
+                return Enumerable.Empty<string>();
 
             return TargetSO.GetType()
                 .GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
