@@ -249,7 +249,7 @@ namespace Feeder
                             modifiedPropertyPaths,
                             incrementChanges,
                             incrementRate,
-                            modifiedCount);
+                            hit.TargetListIndex);
                         modifiedCount++;
                         continue;
                     }
@@ -271,7 +271,7 @@ namespace Feeder
                         modifiedPropertyPaths,
                         incrementChanges,
                         incrementRate,
-                        modifiedCount);
+                        hit.TargetListIndex);
                     modifiedCount++;
                     openPrefabDirty = true;
                 }

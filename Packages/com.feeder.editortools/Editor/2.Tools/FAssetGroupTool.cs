@@ -587,6 +587,7 @@ namespace Feeder
             FDataContainer data = GetDataContainer();
             data.TargetAssets.Clear();
             data.TargetAssets.AddRange(group.Assets);
+            data.SyncAllFromAssets();
             FDataPersistenceService.SaveData(data);
             Debug.Log($"<color=cyan>[Asset Group] Applied '{group.GroupName}' → {group.Assets.Count} assets to TargetAssets</color>");
         }

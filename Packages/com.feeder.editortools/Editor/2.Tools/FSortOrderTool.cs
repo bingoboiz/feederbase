@@ -128,6 +128,7 @@ namespace Feeder
             data.TargetAssets.Clear();
             for (int i = 0; i < _mappingRows.Count; i++)
                 data.TargetAssets.Add(_mappingRows[i].Asset);
+            data.SyncAllFromAssets();
             FDataPersistenceService.SaveData(data);
         }
 
