@@ -102,7 +102,7 @@ namespace Feeder
             if (!_pendingTargetAssetsChange) return;
             _pendingTargetAssetsChange = false;
             var c = GetDataContainer();
-            c.SyncPrefabsFromAssets();
+            c.SyncAllFromAssets();
             FDataPersistenceService.SaveData(c);
             OnTargetAssetsChanged();
         }

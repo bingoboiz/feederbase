@@ -54,17 +54,23 @@ namespace Feeder
             if (assetOrganizerFolder == null) assetOrganizerFolder = "Assets/";
         }
 
-        /// <summary>Filters prefabs (GameObject assets) from TargetAssets into TargetPrefabs. One-way sync.</summary>
-        public void SyncPrefabsFromAssets()
+        /// <summary>
+        /// Syncs all typed asset lists from TargetAssets, preserving position.
+        /// Non-matching entries become null so every list has the same length as TargetAssets.
+        /// </summary>
+        public void SyncAllFromAssets()
         {
-            targetPrefabs ??= new List<GameObject>();
-            targetPrefabs.Clear();
+            SyncTypedList(ref targetPrefabs);
+            SyncTypedList(ref targetMeshes);
+        }
+
+        private void SyncTypedList<T>(ref List<T> list) where T : Object
+        {
+            list ??= new List<T>();
+            list.Clear();
             if (targetAssets == null) return;
             foreach (var asset in targetAssets)
-            {
-                if (asset is GameObject go)
-                    targetPrefabs.Add(go);
-            }
+                list.Add(asset as T);
         }
 
         public void SaveData()

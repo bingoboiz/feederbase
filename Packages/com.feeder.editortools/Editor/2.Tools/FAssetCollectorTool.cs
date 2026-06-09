@@ -106,7 +106,7 @@ namespace Feeder
             var data = FDataPersistenceService.GetOrCreateDataContainer();
             data.TargetAssets.Clear();
             data.TargetAssets.AddRange(assets);
-            data.SyncPrefabsFromAssets();
+            data.SyncAllFromAssets();
             FDataPersistenceService.SaveData(data);
 
             Debug.Log($"<color=cyan>[Asset Collector] Đã nạp {assets.Count} '{_selectedType}' → TargetAssets ({data.TargetPrefabs.Count} prefabs → TargetPrefabs)</color>");
