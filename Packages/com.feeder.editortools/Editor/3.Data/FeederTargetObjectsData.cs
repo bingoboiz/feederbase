@@ -3,27 +3,27 @@ using UnityEngine;
 
 namespace Feeder
 {
-    /// <summary>Persistent data for Feeder tools. Stores TargetObjects so refs survive domain reload and Unity restart.</summary>
-    public sealed class FeederTargetObjectsData : ScriptableObject
+    /// <summary>Persistent data for Feeder tools. Stores TargetPrefabs so refs survive domain reload and Unity restart.</summary>
+    public sealed class FeederTargetPrefabsData : ScriptableObject
     {
         [SerializeField]
-        private List<GameObject> targetObjects = new List<GameObject>();
+        private List<GameObject> targetPrefabs = new List<GameObject>();
 
-        /// <summary>Shared list used by all FTargetObjectsToolBase tools. Persisted in this asset.</summary>
-        public List<GameObject> TargetObjects
+        /// <summary>Shared list used by all FTargetPrefabsToolBase tools. Persisted in this asset.</summary>
+        public List<GameObject> TargetPrefabs
         {
             get
             {
-                if (targetObjects == null)
-                    targetObjects = new List<GameObject>();
-                return targetObjects;
+                if (targetPrefabs == null)
+                    targetPrefabs = new List<GameObject>();
+                return targetPrefabs;
             }
         }
 
         private void OnValidate()
         {
-            if (targetObjects == null)
-                targetObjects = new List<GameObject>();
+            if (targetPrefabs == null)
+                targetPrefabs = new List<GameObject>();
         }
     }
 }

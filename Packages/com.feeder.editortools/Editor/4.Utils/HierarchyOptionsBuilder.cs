@@ -24,9 +24,9 @@ namespace Feeder
 
     public static class HierarchyOptionsBuilder
     {
-        public static HierarchyOptionsResult Build(IReadOnlyList<GameObject> targetObjects)
+        public static HierarchyOptionsResult Build(IReadOnlyList<GameObject> targetPrefabs)
         {
-            if (!(targetObjects?.Count > 0))
+            if (!(targetPrefabs?.Count > 0))
                 throw new InvalidOperationException("target objects is empty.");
 
             var options = new List<ValueDropdownItem<string>>();
@@ -37,12 +37,12 @@ namespace Feeder
             var pathSignatures = new Dictionary<string, HashSet<string>>();
             var allPaths = new HashSet<string>();
 
-            for (int i = 0; i < targetObjects.Count; i++)
+            for (int i = 0; i < targetPrefabs.Count; i++)
             {
-                var go = targetObjects[i];
+                var go = targetPrefabs[i];
                 if (go == null)
                 {
-                    Debug.LogWarning($"[HierarchyOptionsBuilder] Skipping null at targetObjects[{i}].");
+                    Debug.LogWarning($"[HierarchyOptionsBuilder] Skipping null at targetPrefabs[{i}].");
                     continue;
                 }
 

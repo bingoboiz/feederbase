@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FComponentModifyTool : FTargetObjectsToolBase
+    public sealed class FComponentModifyTool : FTargetPrefabsToolBase
     {
         protected override string GetDescription()
         {
@@ -43,7 +43,7 @@ namespace Feeder
                 return;
             }
 
-            if (!(TargetObjects?.Count > 0))
+            if (!(TargetPrefabs?.Count > 0))
             {
                 EditorGUILayout.HelpBox("Add prefabs to show hierarchy.", MessageType.Info);
                 return;
@@ -71,7 +71,7 @@ namespace Feeder
         public void AddComponent()
         {
             Type selectedType = ComponentType;
-            int addedCount = ComponentBatchOperations.AddComponentToTargets(selectedType, SelectedHierarchyPath, TargetObjects);
+            int addedCount = ComponentBatchOperations.AddComponentToTargets(selectedType, SelectedHierarchyPath, TargetPrefabs);
             Debug.Log($"<color=green>Added {addedCount} component(s) of type {selectedType.Name}</color>");
             RebuildComponentInstanceCache();
         }
@@ -93,7 +93,7 @@ namespace Feeder
                 return;
             }
 
-            if (!(TargetObjects?.Count > 0))
+            if (!(TargetPrefabs?.Count > 0))
             {
                 EditorGUILayout.HelpBox("Add target prefabs or scene roots first.", MessageType.Info);
                 return;
@@ -349,9 +349,9 @@ namespace Feeder
             return hierarchyOptions;
         }
 
-        protected override void OnTargetObjectsChanged()
+        protected override void OnTargetPrefabsChanged()
         {
-            if (!(TargetObjects?.Count > 0))
+            if (!(TargetPrefabs?.Count > 0))
             {
                 cachedComponentHits.Clear();
                 RebuildHierarchyOptionsIfReady();
@@ -364,7 +364,7 @@ namespace Feeder
 
         private void RebuildHierarchyOptionsIfReady()
         {
-            if (componentType == null || !(TargetObjects?.Count > 0))
+            if (componentType == null || !(TargetPrefabs?.Count > 0))
             {
                 hierarchyOptions.Clear();
                 conflictPaths.Clear();
@@ -372,7 +372,7 @@ namespace Feeder
                 return;
             }
 
-            HierarchyOptionsResult result = HierarchyOptionsBuilder.Build(TargetObjects);
+            HierarchyOptionsResult result = HierarchyOptionsBuilder.Build(TargetPrefabs);
             hierarchyOptions = result.Options;
             conflictPaths = result.ConflictPaths;
             cachedPrefabCount = result.PrefabCount;
@@ -383,10 +383,10 @@ namespace Feeder
             cachedComponentHits.Clear();
             if (componentType == null)
                 return;
-            if (!(TargetObjects?.Count > 0))
+            if (!(TargetPrefabs?.Count > 0))
                 return;
 
-            ComponentBatchOperations.CollectComponentFindHits(ComponentType, TargetObjects, cachedComponentHits);
+            ComponentBatchOperations.CollectComponentFindHits(ComponentType, TargetPrefabs, cachedComponentHits);
         }
 
         private void DrawFindTargetObjectField(ComponentFindHit hit)

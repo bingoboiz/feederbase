@@ -46,20 +46,20 @@ namespace Feeder
 
         public static void VisitEachTargetHierarchyHavingComponents(
             Type componentType,
-            IReadOnlyList<GameObject> targetObjects,
+            IReadOnlyList<GameObject> targetPrefabs,
             TargetHierarchyComponentsVisitor visit)
         {
             if (componentType == null)
                 throw new InvalidOperationException("component type is null.");
-            if (!(targetObjects?.Count > 0))
+            if (!(targetPrefabs?.Count > 0))
                 throw new InvalidOperationException("target objects is empty.");
 
-            for (int i = 0; i < targetObjects.Count; i++)
+            for (int i = 0; i < targetPrefabs.Count; i++)
             {
-                GameObject go = targetObjects[i];
+                GameObject go = targetPrefabs[i];
                 if (go == null)
                 {
-                    Debug.LogWarning($"[ComponentBatchOperations] Skipping null at targetObjects[{i}].");
+                    Debug.LogWarning($"[ComponentBatchOperations] Skipping null at targetPrefabs[{i}].");
                     continue;
                 }
 
@@ -73,7 +73,7 @@ namespace Feeder
                     string path = AssetDatabase.GetAssetPath(go);
                     if (string.IsNullOrEmpty(path))
                     {
-                        Debug.LogWarning($"[ComponentBatchOperations] Skipping targetObjects[{i}] (no asset path).");
+                        Debug.LogWarning($"[ComponentBatchOperations] Skipping targetPrefabs[{i}] (no asset path).");
                         continue;
                     }
 
@@ -93,13 +93,13 @@ namespace Feeder
 
         public static void CollectComponentFindHits(
             Type componentType,
-            IReadOnlyList<GameObject> targetObjects,
+            IReadOnlyList<GameObject> targetPrefabs,
             List<ComponentFindHit> appendTo)
         {
             if (appendTo == null)
                 throw new InvalidOperationException("append list is null.");
 
-            VisitEachTargetHierarchyHavingComponents(componentType, targetObjects,
+            VisitEachTargetHierarchyHavingComponents(componentType, targetPrefabs,
                 (int targetIndex, GameObject targetListGameObject, bool isSceneObject, string prefabAssetPathOrNull, GameObject loadedHierarchyRoot, Component[] componentsInHierarchy) =>
                 {
                     Transform rootTransform = loadedHierarchyRoot.transform;
@@ -137,7 +137,7 @@ namespace Feeder
         public static int AddComponentToTargets(
             Type componentType,
             string hierarchyPath,
-            IReadOnlyList<GameObject> targetObjects)
+            IReadOnlyList<GameObject> targetPrefabs)
         {
             if (componentType == null)
                 throw new InvalidOperationException("component type is null.");
@@ -147,17 +147,17 @@ namespace Feeder
                 throw new InvalidOperationException($"cannot add {componentType.Name} via AddComponent.");
             if (string.IsNullOrEmpty(hierarchyPath))
                 throw new InvalidOperationException("selected hierarchy path is empty.");
-            if (!(targetObjects?.Count > 0))
+            if (!(targetPrefabs?.Count > 0))
                 throw new InvalidOperationException("target objects is empty.");
 
             int addedCount = 0;
 
-            for (int i = 0; i < targetObjects.Count; i++)
+            for (int i = 0; i < targetPrefabs.Count; i++)
             {
-                var go = targetObjects[i];
+                var go = targetPrefabs[i];
                 if (go == null)
                 {
-                    Debug.LogWarning($"[ComponentBatchOperations] Skipping null at targetObjects[{i}].");
+                    Debug.LogWarning($"[ComponentBatchOperations] Skipping null at targetPrefabs[{i}].");
                     continue;
                 }
 
@@ -175,7 +175,7 @@ namespace Feeder
                     var path = AssetDatabase.GetAssetPath(go);
                     if (string.IsNullOrEmpty(path))
                     {
-                        Debug.LogWarning($"[ComponentBatchOperations] Skipping targetObjects[{i}] (no asset path).");
+                        Debug.LogWarning($"[ComponentBatchOperations] Skipping targetPrefabs[{i}] (no asset path).");
                         continue;
                     }
 

@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FPrefabVariantCreatorTool : FTargetObjectsToolBase
+    public sealed class FPrefabVariantCreatorTool : FTargetPrefabsToolBase
     {
         protected override string GetDescription()
         {
@@ -41,7 +41,7 @@ namespace Feeder
                 locateModel,
                 saveFolderPath);
 
-            int createdCount = PrefabVariantCreatorService.CreatePrefabVariantsFromModels(config, TargetObjects);
+            int createdCount = PrefabVariantCreatorService.CreatePrefabVariantsFromModels(config, TargetPrefabs);
             Debug.Log($"<color=green>Created {createdCount} prefab variant(s).</color>");
         }
 

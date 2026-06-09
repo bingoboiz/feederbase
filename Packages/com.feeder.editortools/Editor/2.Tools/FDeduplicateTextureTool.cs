@@ -10,7 +10,7 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FDeduplicateTextureTool : FTargetObjectsToolBase
+    public sealed class FDeduplicateTextureTool : FTargetPrefabsToolBase
     {
         private const int TexturePreviewSize = 96;
 
@@ -24,7 +24,7 @@ namespace Feeder
 
         protected override string GetDescription()
         {
-            return "Quét TargetObjects tìm texture giống nhau (cùng độ phân giải + pixel) rồi gộp lại. Chỉ quét Base Map (_BaseMap / _MainTex) của từng material.";
+            return "Quét TargetPrefabs tìm texture giống nhau (cùng độ phân giải + pixel) rồi gộp lại. Chỉ quét Base Map (_BaseMap / _MainTex) của từng material.";
         }
 
         [Title("Settings")]
@@ -41,7 +41,7 @@ namespace Feeder
         {
             GUILayout.Space(2);
             StylesUtils.DrawInfoBox(
-                "TargetObjects    root chứa MeshFilter + MeshRenderer\n" +
+                "TargetPrefabs    root chứa MeshFilter + MeshRenderer\n" +
                 "chỉ quét slot _BaseMap / _MainTex của mỗi material\n" +
                 "hai texture bị coi là giống nếu cùng resolution và cùng pixel\n" +
                 "Resolve          chọn texture gốc, các ref còn lại trỏ về texture đó"
@@ -52,7 +52,7 @@ namespace Feeder
         [Button(ButtonSizes.Large), GUIColor(0.3f, 0.8f, 1f)]
         public void FindSimilarTexture()
         {
-            if (TargetObjects == null || TargetObjects.Count == 0)
+            if (TargetPrefabs == null || TargetPrefabs.Count == 0)
             {
                 Debug.LogWarning("[FDeduplicateTextureTool] Add at least one TargetObject.");
                 _similarGroups = null;
@@ -60,7 +60,7 @@ namespace Feeder
                 return;
             }
 
-            Dictionary<Texture2D, List<MaterialTextureSlot>> textureToSlots = CollectTextureSlotsFromTargetObjects();
+            Dictionary<Texture2D, List<MaterialTextureSlot>> textureToSlots = CollectTextureSlotsFromTargetPrefabs();
 
             _allCollectedTextures.Clear();
             if (textureToSlots != null)
@@ -79,16 +79,16 @@ namespace Feeder
             Debug.Log($"<color=green>[FDeduplicateTextureTool] Collected {uniqueCount} unique texture(s), found {groupCount} similar group(s).</color>");
         }
 
-        private Dictionary<Texture2D, List<MaterialTextureSlot>> CollectTextureSlotsFromTargetObjects()
+        private Dictionary<Texture2D, List<MaterialTextureSlot>> CollectTextureSlotsFromTargetPrefabs()
         {
             Dictionary<Texture2D, List<MaterialTextureSlot>> textureToSlots = new Dictionary<Texture2D, List<MaterialTextureSlot>>();
 
-            for (int i = 0; i < TargetObjects.Count; i++)
+            for (int i = 0; i < TargetPrefabs.Count; i++)
             {
-                GameObject target = TargetObjects[i];
+                GameObject target = TargetPrefabs[i];
                 if (target == null)
                 {
-                    Debug.LogWarning($"[FDeduplicateTextureTool] Skipping null at TargetObjects[{i}].");
+                    Debug.LogWarning($"[FDeduplicateTextureTool] Skipping null at TargetPrefabs[{i}].");
                     continue;
                 }
 
@@ -254,7 +254,7 @@ namespace Feeder
         {
             if (_similarGroups == null || _similarGroups.Count == 0)
             {
-                EditorGUILayout.HelpBox("Add TargetObjects (roots with MeshRenderers), then click FindSimilarTexture.", MessageType.Info);
+                EditorGUILayout.HelpBox("Add TargetPrefabs (roots with MeshRenderers), then click FindSimilarTexture.", MessageType.Info);
                 return;
             }
 

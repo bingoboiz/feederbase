@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FNameOffsetTool : FTargetObjectsToolBase
+    public sealed class FNameOffsetTool : FTargetPrefabsToolBase
     {
         protected override string GetDescription()
         {
@@ -27,13 +27,13 @@ namespace Feeder
         [Button(ButtonSizes.Large), GUIColor(0.3f, 0.8f, 1f)]
         public void AdjustOffset()
         {
-            int adjustedCount = NameOffsetAdjusterService.AdjustOffset(TargetObjects, holderPath, offsetY);
+            int adjustedCount = NameOffsetAdjusterService.AdjustOffset(TargetPrefabs, holderPath, offsetY);
             Debug.Log($"<color=green>Adjusted {adjustedCount} target(s).</color>");
         }
 
         private IEnumerable<ValueDropdownItem<string>> GetHolderPathOptions()
         {
-            if (!(TargetObjects?.Count > 0))
+            if (!(TargetPrefabs?.Count > 0))
                 return new List<ValueDropdownItem<string>>(0);
 
             var first = GetFirstNonNullTarget();
@@ -44,9 +44,9 @@ namespace Feeder
 
         private GameObject GetFirstNonNullTarget()
         {
-            for (int i = 0; i < TargetObjects.Count; i++)
+            for (int i = 0; i < TargetPrefabs.Count; i++)
             {
-                var t = TargetObjects[i];
+                var t = TargetPrefabs[i];
                 if (t != null) return t;
             }
             return null;

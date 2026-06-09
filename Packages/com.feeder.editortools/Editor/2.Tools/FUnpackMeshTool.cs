@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FUnpackMeshTool : FTargetObjectsToolBase
+    public sealed class FUnpackMeshTool : FTargetPrefabsToolBase
     {
         private const string CommonFolderName = "_Common";
         private const string ModelsFolderName = "Models";
@@ -67,7 +67,7 @@ namespace Feeder
         {
             GUILayout.Space(2);
             StylesUtils.DrawInfoBox(
-                "TargetObjects     root của object cần unpack\n" +
+                "TargetPrefabs     root của object cần unpack\n" +
                 "Collect Mode      Skinned Only / Mesh Filter Only / Both\n" +
                 "Mesh Naming       tên file mesh theo mesh gốc hay theo GameObject\n" +
                 "mỗi target → Models, Materials, Textures (+ Avatar nếu có Skinned)\n" +
@@ -158,7 +158,7 @@ namespace Feeder
         private HashSet<string> CollectAllTargetNames()
         {
             var names = new HashSet<string>();
-            foreach (GameObject target in TargetObjects)
+            foreach (GameObject target in TargetPrefabs)
                 if (target != null)
                     names.Add(ValidateAssetName(target.name));
             return names;
@@ -171,12 +171,12 @@ namespace Feeder
         {
             var entries = new List<MeshEntry>();
 
-            for (int i = 0; i < TargetObjects.Count; i++)
+            for (int i = 0; i < TargetPrefabs.Count; i++)
             {
-                GameObject target = TargetObjects[i];
+                GameObject target = TargetPrefabs[i];
                 if (target == null)
                 {
-                    Debug.LogWarning($"[FUnpackMeshTool] Skipping null at TargetObjects[{i}].");
+                    Debug.LogWarning($"[FUnpackMeshTool] Skipping null at TargetPrefabs[{i}].");
                     continue;
                 }
 
@@ -486,7 +486,7 @@ namespace Feeder
         {
             // Build avatars outside any batch (AvatarBuilder reads the live scene hierarchy).
             var builtAvatars = new Dictionary<GameObject, (Avatar avatar, string targetName)>();
-            foreach (GameObject target in TargetObjects)
+            foreach (GameObject target in TargetPrefabs)
             {
                 if (target == null) continue;
                 Avatar built = BuildAvatar(target);
@@ -733,7 +733,7 @@ namespace Feeder
 
         private void ValidateInput()
         {
-            if (TargetObjects == null || TargetObjects.Count == 0)
+            if (TargetPrefabs == null || TargetPrefabs.Count == 0)
                 throw new InvalidOperationException("target objects is empty.");
             if (string.IsNullOrWhiteSpace(saveFolderPath) || !AssetDatabase.IsValidFolder(saveFolderPath))
                 throw new InvalidOperationException("save folder path is invalid.");

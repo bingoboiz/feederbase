@@ -9,7 +9,7 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FDeduplicateMaterialTool : FTargetObjectsToolBase
+    public sealed class FDeduplicateMaterialTool : FTargetPrefabsToolBase
     {
         private static readonly string[] BaseMapPropertyNames = { "_BaseMap", "_MainTex" };
 
@@ -23,7 +23,7 @@ namespace Feeder
 
         protected override string GetDescription()
         {
-            return "Quét TargetObjects tìm material trùng lặp (cùng base map texture) rồi gộp lại. Mỗi nhóm bên dưới là một tập material trùng nhau.";
+            return "Quét TargetPrefabs tìm material trùng lặp (cùng base map texture) rồi gộp lại. Mỗi nhóm bên dưới là một tập material trùng nhau.";
         }
 
         [Title("Settings")]
@@ -40,7 +40,7 @@ namespace Feeder
         {
             GUILayout.Space(2);
             StylesUtils.DrawInfoBox(
-                "TargetObjects    root chứa MeshRenderer\n" +
+                "TargetPrefabs    root chứa MeshRenderer\n" +
                 "hai material bị coi là trùng nếu cùng _BaseMap / _MainTex\n" +
                 "Resolve          giữ lại một material, gán lại toàn bộ ref còn lại"
             );
@@ -50,7 +50,7 @@ namespace Feeder
         [Button(ButtonSizes.Large), GUIColor(0.3f, 0.8f, 1f)]
         public void FindDuplicateMaterials()
         {
-            if (TargetObjects == null || TargetObjects.Count == 0)
+            if (TargetPrefabs == null || TargetPrefabs.Count == 0)
             {
                 Debug.LogWarning("[FDeduplicateMaterialTool] Add at least one TargetObject.");
                 _allCollectedMaterials.Clear();
@@ -59,7 +59,7 @@ namespace Feeder
                 return;
             }
 
-            HashSet<Material> uniqueMaterials = CollectAllMaterialsFromTargetObjects();
+            HashSet<Material> uniqueMaterials = CollectAllMaterialsFromTargetPrefabs();
             _allCollectedMaterials.Clear();
             _allCollectedMaterials.AddRange(uniqueMaterials);
 
@@ -75,16 +75,16 @@ namespace Feeder
             Debug.Log($"<color=green>[FDeduplicateMaterialTool] Collected {_allCollectedMaterials.Count} unique material(s), found {groupCount} duplicate group(s).</color>");
         }
 
-        private HashSet<Material> CollectAllMaterialsFromTargetObjects()
+        private HashSet<Material> CollectAllMaterialsFromTargetPrefabs()
         {
             HashSet<Material> collected = new HashSet<Material>();
 
-            for (int i = 0; i < TargetObjects.Count; i++)
+            for (int i = 0; i < TargetPrefabs.Count; i++)
             {
-                GameObject target = TargetObjects[i];
+                GameObject target = TargetPrefabs[i];
                 if (target == null)
                 {
-                    Debug.LogWarning($"[FDeduplicateMaterialTool] Skipping null at TargetObjects[{i}].");
+                    Debug.LogWarning($"[FDeduplicateMaterialTool] Skipping null at TargetPrefabs[{i}].");
                     continue;
                 }
 
@@ -180,7 +180,7 @@ namespace Feeder
         {
             if (_duplicateGroups.Count == 0)
             {
-                EditorGUILayout.HelpBox("Add TargetObjects (roots with MeshRenderers), then click FindDuplicateMaterials.", MessageType.Info);
+                EditorGUILayout.HelpBox("Add TargetPrefabs (roots with MeshRenderers), then click FindDuplicateMaterials.", MessageType.Info);
                 return;
             }
 
@@ -253,7 +253,7 @@ namespace Feeder
 
         private void PingFirstGameObjectWithMaterial(Material material)
         {
-            if (material == null || TargetObjects == null)
+            if (material == null || TargetPrefabs == null)
                 return;
             GameObject first = FindFirstGameObjectWithMaterial(material);
             if (first != null)
@@ -278,11 +278,11 @@ namespace Feeder
 
         private GameObject FindFirstGameObjectWithMaterial(Material material)
         {
-            if (TargetObjects == null || material == null)
+            if (TargetPrefabs == null || material == null)
                 return null;
-            for (int i = 0; i < TargetObjects.Count; i++)
+            for (int i = 0; i < TargetPrefabs.Count; i++)
             {
-                GameObject root = TargetObjects[i];
+                GameObject root = TargetPrefabs[i];
                 if (root == null)
                     continue;
                 GameObject found = FindFirstGameObjectWithMaterialInHierarchy(root.transform, material);
@@ -322,11 +322,11 @@ namespace Feeder
 
         private void ReplaceMaterialInTargetHierarchy(Material oldMaterial, Material newMaterial)
         {
-            if (TargetObjects == null)
+            if (TargetPrefabs == null)
                 return;
-            for (int i = 0; i < TargetObjects.Count; i++)
+            for (int i = 0; i < TargetPrefabs.Count; i++)
             {
-                GameObject root = TargetObjects[i];
+                GameObject root = TargetPrefabs[i];
                 if (root == null)
                     continue;
                 ReplaceMaterialOnRenderersInHierarchy(root.transform, oldMaterial, newMaterial);

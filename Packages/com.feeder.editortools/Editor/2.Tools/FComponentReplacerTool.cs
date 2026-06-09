@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FComponentReplacerTool : FTargetObjectsToolBase
+    public sealed class FComponentReplacerTool : FTargetPrefabsToolBase
     {
         protected override string GetDescription()
         {
@@ -26,7 +26,7 @@ namespace Feeder
         [Button(ButtonSizes.Large)]
         public void ReplaceComponent()
         {
-            var result = ComponentReplaceService.ReplaceComponents(ReplaceWithType, FindType, TargetObjects);
+            var result = ComponentReplaceService.ReplaceComponents(ReplaceWithType, FindType, TargetPrefabs);
             Debug.Log($"<color=green>Replaced {result.ReplacedCount} component(s) in {result.ModifiedPrefabs} prefab(s), {result.ModifiedSceneObjects} scene object(s).</color>");
         }
 

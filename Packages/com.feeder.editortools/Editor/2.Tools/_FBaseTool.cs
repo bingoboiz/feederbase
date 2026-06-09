@@ -25,36 +25,36 @@ namespace Feeder
         }
     }
 
-    public abstract class FTargetObjectsToolBase : FBaseTool
+    public abstract class FTargetPrefabsToolBase : FBaseTool
     {
         [PropertyOrder(-900)]
         [ListDrawerSettings(ShowFoldout = true, DraggableItems = true, ShowIndexLabels = true, NumberOfItemsPerPage = 10)]
-        [OnValueChanged(nameof(HandleTargetObjectsChanged))]
+        [OnValueChanged(nameof(HandleTargetPrefabsChanged))]
         [ShowInInspector]
-        public List<GameObject> TargetObjects
+        public List<GameObject> TargetPrefabs
         {
-            get => GetTargetObjectsData().TargetObjects;
+            get => GetTargetPrefabsData().TargetPrefabs;
             set
             {
-                var data = GetTargetObjectsData();
-                data.TargetObjects.Clear();
+                var data = GetTargetPrefabsData();
+                data.TargetPrefabs.Clear();
                 if (value != null)
-                    data.TargetObjects.AddRange(value);
+                    data.TargetPrefabs.AddRange(value);
                 FDataPersistenceService.SaveData(data);
             }
         }
 
         /// <summary>Persisted data asset so refs survive tool close and Unity restart.</summary>
-        protected FDataContainer GetTargetObjectsData() => FDataPersistenceService.GetOrCreateDataContainer();
+        protected FDataContainer GetTargetPrefabsData() => FDataPersistenceService.GetOrCreateDataContainer();
 
-        protected virtual void OnTargetObjectsChanged()
+        protected virtual void OnTargetPrefabsChanged()
         {
         }
 
-        private void HandleTargetObjectsChanged()
+        private void HandleTargetPrefabsChanged()
         {
-            FDataPersistenceService.SaveData(GetTargetObjectsData());
-            OnTargetObjectsChanged();
+            FDataPersistenceService.SaveData(GetTargetPrefabsData());
+            OnTargetPrefabsChanged();
         }
     }
 
@@ -101,6 +101,9 @@ namespace Feeder
             _delayCallScheduled = false;
             if (!_pendingTargetAssetsChange) return;
             _pendingTargetAssetsChange = false;
+            var c = GetDataContainer();
+            c.SyncPrefabsFromAssets();
+            FDataPersistenceService.SaveData(c);
             OnTargetAssetsChanged();
         }
     }

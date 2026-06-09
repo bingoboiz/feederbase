@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FMeshBoxColliderFitterTool : FTargetObjectsToolBase
+    public sealed class FMeshBoxColliderFitterTool : FTargetPrefabsToolBase
     {
         protected override string GetDescription() =>
             "Kéo thả các GameObject vào list, bấm Fit để tạo child _Col chứa BoxCollider khớp chính xác với mesh (OBB). " +
@@ -18,7 +18,7 @@ namespace Feeder
         [Button(ButtonSizes.Large), GUIColor(0.3f, 0.8f, 1f)]
         public void FitColliders()
         {
-            int count = MeshBoxColliderFitterService.FitAll(TargetObjects, overwriteExisting);
+            int count = MeshBoxColliderFitterService.FitAll(TargetPrefabs, overwriteExisting);
             Debug.Log($"<color=green>Fitted {count} BoxCollider(s).</color>");
         }
     }

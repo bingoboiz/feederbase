@@ -25,22 +25,22 @@ namespace Feeder
         public static ComponentReplaceResult ReplaceComponents(
             Type replaceWithType,
             Type findType,
-            IReadOnlyList<GameObject> targetObjects)
+            IReadOnlyList<GameObject> targetPrefabs)
         {
             ValidateComponentTypes(replaceWithType, findType);
-            if (!(targetObjects?.Count > 0))
+            if (!(targetPrefabs?.Count > 0))
                 throw new InvalidOperationException("target objects is empty.");
 
             int replacedCount = 0;
             int modifiedPrefabs = 0;
             int modifiedSceneObjects = 0;
 
-            for (int i = 0; i < targetObjects.Count; i++)
+            for (int i = 0; i < targetPrefabs.Count; i++)
             {
-                var target = targetObjects[i];
+                var target = targetPrefabs[i];
                 if (target == null)
                 {
-                    Debug.LogWarning($"[ComponentReplaceService] Skipping null at targetObjects[{i}].");
+                    Debug.LogWarning($"[ComponentReplaceService] Skipping null at targetPrefabs[{i}].");
                     continue;
                 }
 
@@ -59,7 +59,7 @@ namespace Feeder
                 var path = AssetDatabase.GetAssetPath(target);
                 if (string.IsNullOrEmpty(path))
                 {
-                    Debug.LogWarning($"[ComponentReplaceService] Skipping targetObjects[{i}] (no asset path).");
+                    Debug.LogWarning($"[ComponentReplaceService] Skipping targetPrefabs[{i}] (no asset path).");
                     continue;
                 }
 

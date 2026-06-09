@@ -8,7 +8,7 @@ namespace Feeder
     [FilePath("UserSettings/Feeder/FDataContainer.asset", FilePathAttribute.Location.ProjectFolder)]
     public sealed class FDataContainer : ScriptableSingleton<FDataContainer>
     {
-        [SerializeField] private List<GameObject> targetObjects = new List<GameObject>();
+        [SerializeField] private List<GameObject> targetPrefabs = new List<GameObject>();
         [SerializeField] private List<Object> targetAssets = new List<Object>();
         [SerializeField] private ScriptableObject targetSO;
         [SerializeField] private List<MeshRenderer> targetsMesh = new List<MeshRenderer>();
@@ -20,7 +20,7 @@ namespace Feeder
         [SerializeField] private string assetCollectorFolder = "Assets/";
         [SerializeField] private string assetOrganizerFolder = "Assets/";
 
-        public List<GameObject> TargetObjects => GetOrInit(ref targetObjects);
+        public List<GameObject> TargetPrefabs => GetOrInit(ref targetPrefabs);
         public List<Object> TargetAssets => GetOrInit(ref targetAssets);
         public ScriptableObject TargetSO { get => targetSO; set => targetSO = value; }
         public List<MeshRenderer> TargetsMesh => GetOrInit(ref targetsMesh);
@@ -46,12 +46,25 @@ namespace Feeder
 
         private void OnValidate()
         {
-            if (targetObjects == null) targetObjects = new List<GameObject>();
+            if (targetPrefabs == null) targetPrefabs = new List<GameObject>();
             if (targetAssets == null) targetAssets = new List<Object>();
             if (targetsMesh == null) targetsMesh = new List<MeshRenderer>();
             if (targetMeshes == null) targetMeshes = new List<Mesh>();
             if (assetCollectorFolder == null) assetCollectorFolder = "Assets/";
             if (assetOrganizerFolder == null) assetOrganizerFolder = "Assets/";
+        }
+
+        /// <summary>Filters prefabs (GameObject assets) from TargetAssets into TargetPrefabs. One-way sync.</summary>
+        public void SyncPrefabsFromAssets()
+        {
+            targetPrefabs ??= new List<GameObject>();
+            targetPrefabs.Clear();
+            if (targetAssets == null) return;
+            foreach (var asset in targetAssets)
+            {
+                if (asset is GameObject go)
+                    targetPrefabs.Add(go);
+            }
         }
 
         public void SaveData()

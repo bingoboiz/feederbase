@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Feeder
 {
-    public sealed class FPrefabModifyTool : FTargetObjectsToolBase
+    public sealed class FPrefabModifyTool : FTargetPrefabsToolBase
     {
     }
 }
