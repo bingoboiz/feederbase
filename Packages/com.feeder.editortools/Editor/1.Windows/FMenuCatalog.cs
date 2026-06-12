@@ -34,6 +34,7 @@ namespace Feeder
         public const string DeduplicateMeshToolPath = OptimizedRoot + "Deduplicate Mesh Tool";
         public const string DeduplicateTextureToolPath = OptimizedRoot + "Deduplicate Texture Tool";
         public const string DeduplicateMaterialToolPath = OptimizedRoot + "Deduplicate Material Tool";
+        public const string VfxFlipbookTrimToolPath = OptimizedRoot + "VFX Flipbook Trim Tool";
 
         public static void AddTools(OdinMenuTree tree)
         {
@@ -61,6 +62,7 @@ namespace Feeder
             tree.Add(DeduplicateMaterialToolPath, ScriptableObject.CreateInstance<FDeduplicateMaterialTool>(), FeederIconCatalog.DefaultToolIcon);
             tree.Add(DeduplicateMeshToolPath, ScriptableObject.CreateInstance<FDeduplicateMeshTool>(), FeederIconCatalog.DefaultToolIcon);
             tree.Add(RepackModelsToolPath, ScriptableObject.CreateInstance<FRepackModelsTool>(), FeederIconCatalog.DefaultToolIcon);
+            tree.Add(VfxFlipbookTrimToolPath, ScriptableObject.CreateInstance<FVfxFlipbookTrimTool>(), FeederIconCatalog.DefaultToolIcon);
         }
     }
 }
