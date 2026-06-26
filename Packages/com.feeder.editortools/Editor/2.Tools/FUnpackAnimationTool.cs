@@ -482,13 +482,11 @@ namespace Feeder
         private static string ValidateAssetName(string name)
         {
             if (string.IsNullOrWhiteSpace(name))
-                throw new InvalidOperationException("asset name is empty.");
+                return "Unknown";
             foreach (char ch in Path.GetInvalidFileNameChars())
-            {
-                if (name.IndexOf(ch) >= 0)
-                    throw new InvalidOperationException($"asset name contains invalid character: {ch}");
-            }
-            return name;
+                name = name.Replace(ch, '_');
+            name = name.Trim();
+            return string.IsNullOrWhiteSpace(name) ? "Unknown" : name;
         }
     }
 }
