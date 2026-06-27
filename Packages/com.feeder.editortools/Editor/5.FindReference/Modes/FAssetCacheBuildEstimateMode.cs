@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using Sirenix.OdinInspector;
@@ -48,6 +49,7 @@ namespace Feeder
         private const float SizeBeforeWidth = 120f;
         private const float SizeEstimateWidth = 120f;
         private const float PercentWidth = 70f;
+        private const float FixedColumnsWidth = TypeWidth + SizeBeforeWidth + SizeEstimateWidth + PercentWidth;
         private const float ScrollbarReserveWidth = 18f;
         private const float IconAndPaddingWidth = 24f;
 
@@ -313,7 +315,7 @@ namespace Feeder
             cache.sceneCount = sceneCount;
             cache.totalBefore = totalBefore;
             cache.totalEstimate = totalEstimate;
-            cache.Save(true);
+            cache.SaveCache();
 
             pageIndex = 0;
             scroll = Vector2.zero;
@@ -498,24 +500,41 @@ namespace Feeder
 
         private static TableMetrics GetTableMetrics(Rect rect)
         {
-            rect.xMax -= ScrollbarReserveWidth;
+            rect.xMax -= Mathf.Min(ScrollbarReserveWidth, Mathf.Max(0f, rect.width - 1f));
 
-            float percentX = rect.xMax - PercentWidth;
-            float sizeEstimateX = percentX - SizeEstimateWidth;
-            float sizeBeforeX = sizeEstimateX - SizeBeforeWidth;
-            float typeX = sizeBeforeX - TypeWidth;
+            float availableWidth = Mathf.Max(1f, rect.width);
+            float assetWidth = Mathf.Max(80f, availableWidth - FixedColumnsWidth);
+            float fixedColumnsWidth = availableWidth - assetWidth;
 
-            float minTypeX = rect.x + 280f;
-            if (typeX < minTypeX)
-                typeX = minTypeX;
+            if (fixedColumnsWidth < FixedColumnsWidth)
+            {
+                float minAssetWidth = availableWidth >= 220f
+                    ? 80f
+                    : Mathf.Max(40f, availableWidth * 0.35f);
+
+                assetWidth = Mathf.Min(availableWidth, minAssetWidth);
+                fixedColumnsWidth = Mathf.Max(0f, availableWidth - assetWidth);
+            }
+
+            float scale = FixedColumnsWidth > 0f ? fixedColumnsWidth / FixedColumnsWidth : 0f;
+            float typeWidth = TypeWidth * scale;
+            float sizeBeforeWidth = SizeBeforeWidth * scale;
+            float sizeEstimateWidth = SizeEstimateWidth * scale;
+            float percentWidth = Mathf.Max(0f, availableWidth - assetWidth - typeWidth - sizeBeforeWidth - sizeEstimateWidth);
+
+            float assetX = rect.x;
+            float typeX = assetX + assetWidth;
+            float sizeBeforeX = typeX + typeWidth;
+            float sizeEstimateX = sizeBeforeX + sizeBeforeWidth;
+            float percentX = sizeEstimateX + sizeEstimateWidth;
 
             return new TableMetrics
             {
-                assetRect = new Rect(rect.x, rect.y, Mathf.Max(80f, typeX - rect.x), rect.height),
-                typeRect = new Rect(typeX, rect.y, TypeWidth, rect.height),
-                sizeBeforeRect = new Rect(typeX + TypeWidth, rect.y, SizeBeforeWidth, rect.height),
-                sizeEstimateRect = new Rect(typeX + TypeWidth + SizeBeforeWidth, rect.y, SizeEstimateWidth, rect.height),
-                percentRect = new Rect(typeX + TypeWidth + SizeBeforeWidth + SizeEstimateWidth, rect.y, PercentWidth, rect.height)
+                assetRect = new Rect(assetX, rect.y, assetWidth, rect.height),
+                typeRect = new Rect(typeX, rect.y, typeWidth, rect.height),
+                sizeBeforeRect = new Rect(sizeBeforeX, rect.y, sizeBeforeWidth, rect.height),
+                sizeEstimateRect = new Rect(sizeEstimateX, rect.y, sizeEstimateWidth, rect.height),
+                percentRect = new Rect(percentX, rect.y, percentWidth, rect.height)
             };
         }
 
@@ -571,7 +590,13 @@ namespace Feeder
         {
             EditorGUIUtility.systemCopyBuffer = string.Join(
                 "\n",
-                selectedRows.Select(r => $"{r.path},{r.type},{r.sizeBefore},{r.sizeEstimate},{r.percent:0.##}"));
+                selectedRows.Select(r => string.Join(
+                    ",",
+                    CsvEscape(r.path),
+                    CsvEscape(r.type.ToString()),
+                    r.sizeBefore.ToString(CultureInfo.InvariantCulture),
+                    r.sizeEstimate.ToString(CultureInfo.InvariantCulture),
+                    r.percent.ToString("0.##", CultureInfo.InvariantCulture))));
         }
 
         private static void HandleAssetClick(Rect rect, string path)
@@ -602,6 +627,18 @@ namespace Feeder
             return !string.IsNullOrEmpty(source) &&
                    !string.IsNullOrEmpty(value) &&
                    source.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string CsvEscape(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            bool mustQuote = value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0;
+            if (!mustQuote)
+                return value;
+
+            return "\"" + value.Replace("\"", "\"\"") + "\"";
         }
 
         private static string FormatBytes(long bytes)

@@ -50,6 +50,8 @@ namespace Feeder
         private SearchGroupMode groupBy = SearchGroupMode.Type;
         private SearchSortMode sortBy = SearchSortMode.Path;
         private bool showDetails = true;
+        private float sceneAssetSplitRatio = 0.5f;
+        private float detailsWidth = 280f;
 
         [NonSerialized] private bool hasRun;
         [NonSerialized] private string searchText;
@@ -92,9 +94,88 @@ namespace Feeder
 
         private void DrawToolbar()
         {
-            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            float viewWidth = FOdinMenuLayoutUtils.GetContentViewWidth();
+            bool useSplitToolbar = viewWidth > 0f && viewWidth < ToolbarSingleRowMinWidth;
+            float toolbarHeight = EditorGUIUtility.singleLineHeight * (useSplitToolbar ? 2f : 1f);
+            Rect toolbarRect = EditorGUILayout.GetControlRect(false, toolbarHeight, EditorStyles.toolbar, GUILayout.ExpandWidth(true));
+            if (viewWidth > 0f)
+                toolbarRect.width = Mathf.Min(toolbarRect.width, viewWidth);
 
-            int newTab = GUILayout.Toolbar((int)tab, new[] { "Uses", "Used By" }, EditorStyles.toolbarButton, GUILayout.Width(160));
+            if (useSplitToolbar)
+            {
+                Rect primaryRect = new Rect(toolbarRect.x, toolbarRect.y, toolbarRect.width, EditorGUIUtility.singleLineHeight);
+                Rect searchRect = new Rect(toolbarRect.x, primaryRect.yMax, toolbarRect.width, EditorGUIUtility.singleLineHeight);
+                GUI.Box(primaryRect, GUIContent.none, EditorStyles.toolbar);
+                GUI.Box(searchRect, GUIContent.none, EditorStyles.toolbar);
+
+                float splitRightActionsWidth = GetToolbarRightActionsWidth(compact: true);
+                Rect splitActionsRect = primaryRect;
+                splitActionsRect.xMin = Mathf.Max(primaryRect.xMin, primaryRect.xMax - splitRightActionsWidth);
+                DrawToolbarRightActions(splitActionsRect, compact: true);
+
+                Rect splitLeftRect = primaryRect;
+                splitLeftRect.xMax = Mathf.Max(splitLeftRect.xMin, splitActionsRect.xMin - ToolbarMinGap);
+                DrawToolbarLeftControls(splitLeftRect, includeSearch: false);
+
+                DrawToolbarSearchControls(searchRect, showLabel: searchRect.width >= ToolbarSearchLabelWidth);
+                return;
+            }
+
+            GUI.Box(toolbarRect, GUIContent.none, EditorStyles.toolbar);
+
+            bool useCompactActions = toolbarRect.width < ToolbarCompactActionsThreshold;
+            float rightActionsWidth = GetToolbarRightActionsWidth(useCompactActions);
+            Rect actionsRect = toolbarRect;
+            actionsRect.xMin = Mathf.Max(toolbarRect.xMin, toolbarRect.xMax - rightActionsWidth);
+            DrawToolbarRightActions(actionsRect, useCompactActions);
+
+            Rect leftRect = toolbarRect;
+            leftRect.xMax = Mathf.Max(leftRect.xMin, actionsRect.xMin - ToolbarPreferredGap);
+            DrawToolbarLeftControls(leftRect);
+        }
+
+        private void DrawToolbarLeftControls(Rect rect, bool includeSearch = true)
+        {
+            float availableWidth = Mathf.Max(0f, rect.width);
+            if (availableWidth < ToolbarTabMinWidth)
+                return;
+
+            float gap = availableWidth >= ToolbarWideLayoutWidth ? ToolbarPreferredGap : ToolbarMinGap;
+            bool useFullToggleLabels = availableWidth >= ToolbarFullToggleLabelWidth;
+            bool showSearchLabel = availableWidth >= ToolbarSearchLabelWidth;
+            bool showSearchGroup = includeSearch && availableWidth >= ToolbarSearchVisibleWidth;
+
+            float toggleWidth = useFullToggleLabels ? ToolbarToggleFullWidth : ToolbarToggleCompactWidth;
+            float tabWidth = Mathf.Min(ToolbarTabPreferredWidth, availableWidth);
+
+            float searchReserveWidth = showSearchGroup ? gap + ToolbarSearchMinWidth + ToolbarClearWidth : 0f;
+            if (showSearchLabel)
+                searchReserveWidth += ToolbarSearchLabelContentWidth;
+
+            float primaryAvailableWidth = Mathf.Max(0f, availableWidth - searchReserveWidth);
+            float requiredPrimaryWidth = tabWidth + gap + toggleWidth * 2f;
+            if (requiredPrimaryWidth > primaryAvailableWidth)
+            {
+                tabWidth = Mathf.Clamp(
+                    primaryAvailableWidth - gap - toggleWidth * 2f,
+                    ToolbarTabMinWidth,
+                    ToolbarTabPreferredWidth);
+                requiredPrimaryWidth = tabWidth + gap + toggleWidth * 2f;
+            }
+
+            if (requiredPrimaryWidth > primaryAvailableWidth)
+            {
+                toggleWidth = Mathf.Max(
+                    ToolbarToggleMinWidth,
+                    (primaryAvailableWidth - tabWidth - gap) * 0.5f);
+            }
+
+            float x = rect.x;
+
+            if (!ReserveToolbarRect(rect, ref x, tabWidth, out Rect tabRect))
+                return;
+
+            int newTab = GUI.Toolbar(tabRect, (int)tab, new[] { "Uses", "Used By" }, EditorStyles.toolbarButton);
             if (newTab != (int)tab)
             {
                 tab = (SearchTab)newTab;
@@ -103,9 +184,17 @@ namespace Feeder
                     RefreshSearch();
             }
 
-            GUILayout.Space(8);
-            bool scene = GUILayout.Toggle(showSceneReference, "Scene Reference", EditorStyles.toolbarButton, GUILayout.Width(118));
-            bool asset = GUILayout.Toggle(showAssetReference, "Asset Reference", EditorStyles.toolbarButton, GUILayout.Width(118));
+            x += gap;
+
+            string sceneLabel = useFullToggleLabels ? "Scene Reference" : "Scene";
+            string assetLabel = useFullToggleLabels ? "Asset Reference" : "Asset";
+            if (!ReserveToolbarRect(rect, ref x, toggleWidth, out Rect sceneRect))
+                return;
+            if (!ReserveToolbarRect(rect, ref x, toggleWidth, out Rect assetRect))
+                return;
+
+            bool scene = GUI.Toggle(sceneRect, showSceneReference, sceneLabel, EditorStyles.toolbarButton);
+            bool asset = GUI.Toggle(assetRect, showAssetReference, assetLabel, EditorStyles.toolbarButton);
 
             if (!scene && !asset)
             {
@@ -118,36 +207,84 @@ namespace Feeder
             showSceneReference = scene;
             showAssetReference = asset;
 
-            GUILayout.Space(8);
-            GUILayout.Label("Search", GUILayout.Width(44));
-            searchText = GUILayout.TextField(searchText ?? string.Empty, GetToolbarSearchStyle(), GUILayout.MinWidth(90));
+            if (!showSearchGroup)
+                return;
 
-            using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(searchText)))
-            {
-                if (GUILayout.Button("Clear", EditorStyles.toolbarButton, GUILayout.Width(46)))
-                    searchText = string.Empty;
-            }
-
-            GUILayout.FlexibleSpace();
-
-            if (DrawIconButton(SdfIconType.ArrowClockwise, "Refresh Search"))
-                RefreshSearch();
-
-            DrawLockToggle();
-
-            showDetails = DrawIconToggle(
-                showDetails,
-                SdfIconType.LayoutSidebarInsetReverse,
-                SdfIconType.LayoutSidebarInset,
-                showDetails ? "Hide Details panel" : "Show Details panel");
-
-            EditorGUILayout.EndHorizontal();
+            x += gap;
+            DrawToolbarSearchControls(new Rect(x, rect.y, Mathf.Max(0f, rect.xMax - x), rect.height), showSearchLabel);
         }
 
-        private void DrawLockToggle()
+        private void DrawToolbarSearchControls(Rect rect, bool showLabel)
+        {
+            float x = rect.x;
+            float remaining = rect.xMax - x;
+            if (remaining < ToolbarSearchTinyWidth)
+                return;
+
+            if (showLabel &&
+                remaining >= ToolbarSearchLabelContentWidth + ToolbarSearchMinWidth + ToolbarClearWidth &&
+                ReserveToolbarRect(rect, ref x, ToolbarSearchLabelContentWidth, out Rect searchLabelRect))
+            {
+                GUI.Label(searchLabelRect, "Search");
+            }
+
+            remaining = rect.xMax - x;
+            float clearWidth = remaining >= ToolbarSearchTinyWidth + ToolbarClearWidth
+                ? ToolbarClearWidth
+                : 0f;
+            float searchMaxWidth = Mathf.Min(ToolbarSearchMaxWidth, remaining - clearWidth);
+            if (searchMaxWidth < ToolbarSearchTinyWidth)
+                return;
+
+            float searchMinWidth = Mathf.Min(ToolbarSearchMinWidth, searchMaxWidth);
+            float searchWidth = Mathf.Clamp(remaining - clearWidth, searchMinWidth, searchMaxWidth);
+            if (remaining >= ToolbarSearchPreferredWidth + clearWidth)
+                searchWidth = Mathf.Min(ToolbarSearchPreferredWidth, searchWidth);
+
+            if (!ReserveToolbarRect(rect, ref x, searchWidth, out Rect searchRect))
+                return;
+
+            searchText = GUI.TextField(searchRect, searchText ?? string.Empty, GetToolbarSearchStyle());
+
+            if (clearWidth > 0f && ReserveToolbarRect(rect, ref x, clearWidth, out Rect clearRect))
+            {
+                using (new EditorGUI.DisabledScope(string.IsNullOrEmpty(searchText)))
+                {
+                    if (GUI.Button(clearRect, "Clear", EditorStyles.toolbarButton))
+                        searchText = string.Empty;
+                }
+            }
+        }
+
+        private void DrawToolbarRightActions(Rect rect, bool compact)
+        {
+            float detailsWidth = compact ? ToolbarDetailsCompactWidth : ToolbarDetailsFullWidth;
+            float lockWidth = compact ? ToolbarLockCompactWidth : ToolbarLockFullWidth;
+            float refreshWidth = compact ? ToolbarRefreshCompactWidth : ToolbarRefreshFullWidth;
+
+            float x = rect.xMax - detailsWidth;
+            Rect detailsRect = new Rect(x, rect.y, detailsWidth, rect.height);
+            x -= lockWidth;
+            Rect lockRect = new Rect(x, rect.y, lockWidth, rect.height);
+            x -= refreshWidth;
+            Rect refreshRect = new Rect(x, rect.y, refreshWidth, rect.height);
+
+            if (DrawToolbarButton(refreshRect, compact ? "Ref" : "Refresh", "Refresh Search"))
+                RefreshSearch();
+
+            DrawLockToggle(lockRect);
+
+            showDetails = DrawToolbarToggle(
+                detailsRect,
+                showDetails,
+                compact ? "Dtl" : "Details",
+                showDetails ? "Hide Details panel" : "Show Details panel");
+        }
+
+        private void DrawLockToggle(Rect rect)
         {
             EditorGUI.BeginChangeCheck();
-            bool nextLock = DrawIconToggle(lockSelection, SdfIconType.LockFill, SdfIconType.Unlock, GetSelectionTooltip());
+            bool nextLock = DrawToolbarToggle(rect, lockSelection, "Lock", GetSelectionTooltip());
 
             if (EditorGUI.EndChangeCheck())
             {
@@ -159,6 +296,19 @@ namespace Feeder
                         RefreshSearch();
                 }
             }
+        }
+
+        private static bool ReserveToolbarRect(Rect bounds, ref float x, float width, out Rect rect)
+        {
+            if (x + width > bounds.xMax)
+            {
+                rect = default;
+                return false;
+            }
+
+            rect = new Rect(x, bounds.y, width, bounds.height);
+            x += width;
+            return true;
         }
 
         private void DrawSelectionBar()
@@ -341,27 +491,89 @@ namespace Feeder
 
         private void DrawPanels()
         {
-            float viewWidth = EditorGUIUtility.currentViewWidth;
-            bool detailsVisible = showDetails && viewWidth >= 560f;
+            bool showBothResults = showSceneReference && showAssetReference;
+            float minHeight = showBothResults
+                ? ResultPanelMinHeight * 2f + SplitterThickness
+                : ResultPanelMinHeight;
 
-            EditorGUILayout.BeginHorizontal();
-
-            EditorGUILayout.BeginVertical(GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
-            if (showSceneReference)
-                DrawResultPanel("Scene", RefSource.Scene, sceneRows, sceneMessage, ref sceneScroll);
-            if (showAssetReference)
-                DrawResultPanel("Assets", RefSource.Asset, assetRows, assetMessage, ref assetScroll);
-            EditorGUILayout.EndVertical();
+            float viewWidth = Mathf.Max(0f, FOdinMenuLayoutUtils.GetContentViewWidth());
+            float panelHeight = GetSearchPanelHeight(minHeight);
+            bool detailsVisible = showDetails &&
+                                  viewWidth >= ResultsPanelMinWidth + DetailsPanelMinWidth + SplitterThickness;
 
             if (detailsVisible)
-                DrawDetailsPanel(viewWidth);
+            {
+                float maxDetailsWidth = viewWidth - ResultsPanelMinWidth - SplitterThickness;
+                detailsWidth = Mathf.Clamp(detailsWidth, DetailsPanelMinWidth, maxDetailsWidth);
+                float resultsWidth = Mathf.Max(ResultsPanelMinWidth, viewWidth - detailsWidth - SplitterThickness);
 
-            EditorGUILayout.EndHorizontal();
+                EditorGUILayout.BeginHorizontal(GUILayout.Height(panelHeight));
+                DrawResultsPanels(resultsWidth, panelHeight);
+
+                Rect splitterRect = GUILayoutUtility.GetRect(
+                    SplitterThickness,
+                    panelHeight,
+                    GUILayout.Width(SplitterThickness),
+                    GUILayout.Height(panelHeight));
+                HandleVerticalSplitter(splitterRect, maxDetailsWidth);
+
+                DrawDetailsPanel(panelHeight);
+                EditorGUILayout.EndHorizontal();
+                return;
+            }
+
+            DrawResultsPanels(0f, panelHeight);
         }
 
-        private void DrawResultPanel(string title, RefSource source, List<RefRow> sourceRows, string message, ref Vector2 scroll)
+        private static float GetSearchPanelHeight(float minHeight)
         {
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.ExpandWidth(true), GUILayout.ExpandHeight(true));
+            Rect contentRect = FOdinMenuLayoutUtils.GetContentRect();
+            if (contentRect.height <= 0f)
+                return Mathf.Max(minHeight, DefaultPanelHeight);
+
+            return Mathf.Max(minHeight, contentRect.height - SearchPanelReservedHeight);
+        }
+
+        private void DrawResultsPanels(float width, float height)
+        {
+            GUILayoutOption widthOption = width > 0f ? GUILayout.Width(width) : GUILayout.ExpandWidth(true);
+            EditorGUILayout.BeginVertical(widthOption, GUILayout.Height(height));
+
+            if (showSceneReference && showAssetReference)
+            {
+                float availableHeight = Mathf.Max(0f, height - SplitterThickness);
+                float minPanelHeight = Mathf.Min(ResultPanelMinHeight, availableHeight * 0.5f);
+                float sceneHeight = Mathf.Clamp(
+                    availableHeight * sceneAssetSplitRatio,
+                    minPanelHeight,
+                    availableHeight - minPanelHeight);
+                float assetHeight = Mathf.Max(minPanelHeight, availableHeight - sceneHeight);
+
+                DrawResultPanel("Scene", RefSource.Scene, sceneRows, sceneMessage, ref sceneScroll, sceneHeight);
+
+                Rect splitterRect = GUILayoutUtility.GetRect(
+                    0f,
+                    SplitterThickness,
+                    GUILayout.ExpandWidth(true),
+                    GUILayout.Height(SplitterThickness));
+                HandleHorizontalSplitter(splitterRect, availableHeight);
+
+                DrawResultPanel("Assets", RefSource.Asset, assetRows, assetMessage, ref assetScroll, assetHeight);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            if (showSceneReference)
+                DrawResultPanel("Scene", RefSource.Scene, sceneRows, sceneMessage, ref sceneScroll, height);
+            if (showAssetReference)
+                DrawResultPanel("Assets", RefSource.Asset, assetRows, assetMessage, ref assetScroll, height);
+
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawResultPanel(string title, RefSource source, List<RefRow> sourceRows, string message, ref Vector2 scroll, float height)
+        {
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Height(height), GUILayout.ExpandWidth(true));
 
             List<RefRow> visible = FilterAndSort(sourceRows, source);
             EditorGUILayout.LabelField($"{title} ({(sourceRows == null ? 0 : visible.Count)})", s_PanelTitle);
@@ -402,10 +614,9 @@ namespace Feeder
             EditorGUILayout.EndVertical();
         }
 
-        private void DrawDetailsPanel(float viewWidth)
+        private void DrawDetailsPanel(float height)
         {
-            float width = Mathf.Clamp(viewWidth * 0.32f, 220f, 360f);
-            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(width), GUILayout.ExpandHeight(true));
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox, GUILayout.Width(detailsWidth), GUILayout.Height(height));
             EditorGUILayout.LabelField("Details", s_PanelTitle);
 
             if (selectedRow == null)
@@ -446,6 +657,95 @@ namespace Feeder
 
             EditorGUILayout.EndScrollView();
             EditorGUILayout.EndVertical();
+        }
+
+        private void HandleHorizontalSplitter(Rect rect, float availableHeight)
+        {
+            EditorGUIUtility.AddCursorRect(rect, MouseCursor.ResizeVertical);
+            int controlId = GUIUtility.GetControlID(HorizontalSplitterControlIdHint, FocusType.Passive, rect);
+            Event e = Event.current;
+
+            switch (e.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    if (e.button == 0 && rect.Contains(e.mousePosition))
+                    {
+                        GUIUtility.hotControl = controlId;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.MouseDrag:
+                    if (GUIUtility.hotControl == controlId)
+                    {
+                        float clampedAvailableHeight = Mathf.Max(1f, availableHeight);
+                        float minPanelHeight = Mathf.Min(ResultPanelMinHeight, clampedAvailableHeight * 0.5f);
+                        float sceneHeight = Mathf.Clamp(
+                            e.mousePosition.y - (rect.y - sceneAssetSplitRatio * clampedAvailableHeight),
+                            minPanelHeight,
+                            clampedAvailableHeight - minPanelHeight);
+
+                        sceneAssetSplitRatio = sceneHeight / clampedAvailableHeight;
+                        GUI.changed = true;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl == controlId)
+                    {
+                        GUIUtility.hotControl = 0;
+                        e.Use();
+                    }
+                    break;
+            }
+
+            DrawSplitter(rect, GUIUtility.hotControl == controlId || rect.Contains(e.mousePosition));
+        }
+
+        private void HandleVerticalSplitter(Rect rect, float maxDetailsWidth)
+        {
+            EditorGUIUtility.AddCursorRect(rect, MouseCursor.ResizeHorizontal);
+            int controlId = GUIUtility.GetControlID(VerticalSplitterControlIdHint, FocusType.Passive, rect);
+            Event e = Event.current;
+
+            switch (e.GetTypeForControl(controlId))
+            {
+                case EventType.MouseDown:
+                    if (e.button == 0 && rect.Contains(e.mousePosition))
+                    {
+                        GUIUtility.hotControl = controlId;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.MouseDrag:
+                    if (GUIUtility.hotControl == controlId)
+                    {
+                        float panelRight = rect.x + SplitterThickness + detailsWidth;
+                        float nextDetailsWidth = panelRight - e.mousePosition.x - SplitterThickness;
+                        detailsWidth = Mathf.Clamp(nextDetailsWidth, DetailsPanelMinWidth, maxDetailsWidth);
+
+                        GUI.changed = true;
+                        e.Use();
+                    }
+                    break;
+
+                case EventType.MouseUp:
+                    if (GUIUtility.hotControl == controlId)
+                    {
+                        GUIUtility.hotControl = 0;
+                        e.Use();
+                    }
+                    break;
+            }
+
+            DrawSplitter(rect, GUIUtility.hotControl == controlId || rect.Contains(e.mousePosition));
+        }
+
+        private static void DrawSplitter(Rect rect, bool active)
+        {
+            EditorGUI.DrawRect(rect, active ? SplitterActiveColor : SplitterColor);
         }
 
         private void DrawFooter()
@@ -863,31 +1163,68 @@ namespace Feeder
             return c;
         }
 
-        // ----- Icon buttons -----
+        // ----- Toolbar buttons -----
 
-        private static bool DrawIconButton(SdfIconType icon, string tooltip, float width = 30f)
+        private static bool DrawToolbarButton(Rect rect, string label, string tooltip)
         {
-            Rect rect = GUILayoutUtility.GetRect(width, EditorGUIUtility.singleLineHeight, EditorStyles.toolbarButton, GUILayout.Width(width));
-            bool clicked = SirenixEditorGUI.SDFIconButton(rect, icon, EditorStyles.toolbarButton);
-            GUI.Label(rect, new GUIContent(string.Empty, tooltip), GUIStyle.none);
-            return clicked;
+            return GUI.Button(rect, new GUIContent(label, tooltip), EditorStyles.toolbarButton);
         }
 
-        private static bool DrawIconToggle(bool value, SdfIconType onIcon, SdfIconType offIcon, string tooltip, float width = 30f)
+        private static bool DrawToolbarToggle(Rect rect, bool value, string label, string tooltip)
         {
-            Rect rect = GUILayoutUtility.GetRect(width, EditorGUIUtility.singleLineHeight, EditorStyles.toolbarButton, GUILayout.Width(width));
             GUIStyle style = value ? SirenixGUIStyles.ToolbarButtonSelected : EditorStyles.toolbarButton;
-            bool clicked = SirenixEditorGUI.SDFIconButton(rect, value ? onIcon : offIcon, style);
-            GUI.Label(rect, new GUIContent(string.Empty, tooltip), GUIStyle.none);
-            return clicked ? !value : value;
+            return GUI.Toggle(rect, value, new GUIContent(label, tooltip), style);
+        }
+
+        private static float GetToolbarRightActionsWidth(bool compact)
+        {
+            return compact
+                ? ToolbarRefreshCompactWidth + ToolbarLockCompactWidth + ToolbarDetailsCompactWidth
+                : ToolbarRefreshFullWidth + ToolbarLockFullWidth + ToolbarDetailsFullWidth;
         }
 
         // ----- Styles & colors -----
+
+        private const float SplitterThickness = 4f;
+        private const float ToolbarRefreshFullWidth = 58f;
+        private const float ToolbarLockFullWidth = 44f;
+        private const float ToolbarDetailsFullWidth = 58f;
+        private const float ToolbarRefreshCompactWidth = 36f;
+        private const float ToolbarLockCompactWidth = 40f;
+        private const float ToolbarDetailsCompactWidth = 34f;
+        private const float ToolbarCompactActionsThreshold = 640f;
+        private const float ToolbarPreferredGap = 8f;
+        private const float ToolbarMinGap = 4f;
+        private const float ToolbarTabPreferredWidth = 160f;
+        private const float ToolbarTabMinWidth = 112f;
+        private const float ToolbarToggleFullWidth = 118f;
+        private const float ToolbarToggleCompactWidth = 58f;
+        private const float ToolbarToggleMinWidth = 46f;
+        private const float ToolbarSearchTinyWidth = 48f;
+        private const float ToolbarSearchMinWidth = 90f;
+        private const float ToolbarSearchPreferredWidth = 280f;
+        private const float ToolbarSearchMaxWidth = 300f;
+        private const float ToolbarSearchLabelContentWidth = 44f;
+        private const float ToolbarClearWidth = 46f;
+        private const float ToolbarSearchVisibleWidth = ToolbarTabMinWidth + ToolbarMinGap + ToolbarToggleCompactWidth * 2f + ToolbarMinGap + ToolbarSearchMinWidth + ToolbarClearWidth;
+        private const float ToolbarFullToggleLabelWidth = ToolbarTabPreferredWidth + ToolbarPreferredGap + ToolbarToggleFullWidth * 2f + ToolbarPreferredGap + ToolbarSearchMinWidth + ToolbarClearWidth;
+        private const float ToolbarSearchLabelWidth = ToolbarFullToggleLabelWidth + ToolbarSearchLabelContentWidth;
+        private const float ToolbarWideLayoutWidth = ToolbarSearchLabelWidth + 80f;
+        private const float ToolbarSingleRowMinWidth = ToolbarSearchVisibleWidth + ToolbarPreferredGap + ToolbarRefreshCompactWidth + ToolbarLockCompactWidth + ToolbarDetailsCompactWidth;
+        private const float ResultPanelMinHeight = 44f;
+        private const float DetailsPanelMinWidth = 96f;
+        private const float ResultsPanelMinWidth = 300f;
+        private const float DefaultPanelHeight = 360f;
+        private const float SearchPanelReservedHeight = 118f;
+        private const int HorizontalSplitterControlIdHint = 12030501;
+        private const int VerticalSplitterControlIdHint = 12030502;
 
         private static readonly Color HeaderBgColor = new Color(0f, 0f, 0f, 0.15f);
         private static readonly Color RowHoverColor = new Color(0.25f, 0.55f, 1f, 0.12f);
         private static readonly Color RowSelectedColor = new Color(0.2f, 0.55f, 1f, 0.22f);
         private static readonly Color SelectionBarColor = new Color(0.3f, 0.6f, 1f, 0.10f);
+        private static readonly Color SplitterColor = new Color(0f, 0f, 0f, 0.18f);
+        private static readonly Color SplitterActiveColor = new Color(0.3f, 0.6f, 1f, 0.35f);
 
         private static GUIStyle s_PanelTitle;
         private static GUIStyle s_HeaderCol;

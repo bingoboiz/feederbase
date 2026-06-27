@@ -10,11 +10,21 @@ namespace Feeder
     public sealed class FBuildEstimateCache : ScriptableSingleton<FBuildEstimateCache>
     {
         [SerializeField] public List<FBuildEstimateRow> rows = new List<FBuildEstimateRow>();
+        [SerializeField] public bool hasData;
         [SerializeField] public int sceneCount;
         [SerializeField] public long totalBefore;
         [SerializeField] public long totalEstimate;
 
-        public bool HasData => rows != null && rows.Count > 0;
+        public bool HasData => hasData || (rows != null && rows.Count > 0);
+
+        public void SaveCache()
+        {
+            if (rows == null)
+                rows = new List<FBuildEstimateRow>();
+
+            hasData = true;
+            Save(true);
+        }
     }
 
     [Serializable]
