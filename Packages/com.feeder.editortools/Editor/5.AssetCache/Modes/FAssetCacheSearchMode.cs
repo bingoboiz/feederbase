@@ -67,6 +67,7 @@ namespace Feeder
         [NonSerialized] private List<Object> selectionTargets;
         [NonSerialized] private string[] selectionTargetGuids;
         [NonSerialized] private Object[] ignoredEditorSelection;
+        [NonSerialized] private float lastSearchPanelTopY;
 
         protected override string GetDescription() =>
             "Search references with an FR2-style layout: Selection, Scene Reference, Asset Reference, and Details.";
@@ -496,7 +497,7 @@ namespace Feeder
                 ? ResultPanelMinHeight * 2f + SplitterThickness
                 : ResultPanelMinHeight;
 
-            float viewWidth = Mathf.Max(0f, FOdinMenuLayoutUtils.GetContentViewWidth());
+            float viewWidth = GetSearchPanelWidth();
             float panelHeight = GetSearchPanelHeight(minHeight);
             bool detailsVisible = showDetails &&
                                   viewWidth >= ResultsPanelMinWidth + DetailsPanelMinWidth + SplitterThickness;
@@ -505,10 +506,9 @@ namespace Feeder
             {
                 float maxDetailsWidth = viewWidth - ResultsPanelMinWidth - SplitterThickness;
                 detailsWidth = Mathf.Clamp(detailsWidth, DetailsPanelMinWidth, maxDetailsWidth);
-                float resultsWidth = Mathf.Max(ResultsPanelMinWidth, viewWidth - detailsWidth - SplitterThickness);
 
-                EditorGUILayout.BeginHorizontal(GUILayout.Height(panelHeight));
-                DrawResultsPanels(resultsWidth, panelHeight);
+                EditorGUILayout.BeginHorizontal(GUILayout.Height(panelHeight), GUILayout.ExpandWidth(true));
+                DrawResultsPanels(0f, panelHeight);
 
                 Rect splitterRect = GUILayoutUtility.GetRect(
                     SplitterThickness,
@@ -525,13 +525,32 @@ namespace Feeder
             DrawResultsPanels(0f, panelHeight);
         }
 
-        private static float GetSearchPanelHeight(float minHeight)
+        private float GetSearchPanelHeight(float minHeight)
         {
             Rect contentRect = FOdinMenuLayoutUtils.GetContentRect();
             if (contentRect.height <= 0f)
                 return Mathf.Max(minHeight, DefaultPanelHeight);
 
-            return Mathf.Max(minHeight, contentRect.height - SearchPanelReservedHeight);
+            Rect lastRect = GUILayoutUtility.GetLastRect();
+            if (Event.current.type == EventType.Repaint && lastRect.yMax > 0f)
+                lastSearchPanelTopY = lastRect.yMax;
+
+            float usedHeight = lastSearchPanelTopY > 0f
+                ? lastSearchPanelTopY
+                : SearchPanelInitialReservedHeight;
+            float availableHeight = contentRect.height - usedHeight - FooterHeight - SearchPanelBottomPadding;
+            return Mathf.Max(minHeight, availableHeight);
+        }
+
+        private static float GetSearchPanelWidth()
+        {
+            float hostWidth = Mathf.Max(0f, FOdinMenuLayoutUtils.GetContentViewWidth());
+            float currentWidth = Mathf.Max(0f, EditorGUIUtility.currentViewWidth);
+            float width = hostWidth > 0f && currentWidth > 0f
+                ? Mathf.Min(hostWidth, currentWidth)
+                : Mathf.Max(hostWidth, currentWidth);
+
+            return Mathf.Max(0f, width - SearchPanelHorizontalPadding);
         }
 
         private void DrawResultsPanels(float width, float height)
@@ -1215,7 +1234,10 @@ namespace Feeder
         private const float DetailsPanelMinWidth = 96f;
         private const float ResultsPanelMinWidth = 300f;
         private const float DefaultPanelHeight = 360f;
-        private const float SearchPanelReservedHeight = 118f;
+        private const float SearchPanelInitialReservedHeight = 118f;
+        private const float FooterHeight = 20f;
+        private const float SearchPanelBottomPadding = 8f;
+        private const float SearchPanelHorizontalPadding = 18f;
         private const int HorizontalSplitterControlIdHint = 12030501;
         private const int VerticalSplitterControlIdHint = 12030502;
 

@@ -31,6 +31,7 @@ namespace Feeder
             tree.Add("Scan Database", CreateInstance<FAssetCacheScanDatabaseMode>(), SdfIconType.FolderCheck);
             tree.Add("Build Estimate", CreateInstance<FAssetCacheBuildEstimateMode>(), SdfIconType.Files);
             tree.Add("Search", CreateInstance<FAssetCacheSearchMode>(), SdfIconType.Search);
+            tree.Add("FBX Unpack", CreateInstance<FFbxUnpackMode>(), SdfIconType.BoxArrowInDown);
 
             return tree;
         }
