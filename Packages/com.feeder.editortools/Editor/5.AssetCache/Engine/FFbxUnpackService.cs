@@ -23,7 +23,7 @@ namespace Feeder
         private static readonly HashSet<string> SupportedReferenceExtensions =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
-                ".prefab", ".unity", ".controller", ".overridecontroller", ".mat", ".asset", ".anim"
+                ".prefab", ".unity", ".controller", ".overridecontroller", ".mat", ".asset", ".anim", ".playable"
             };
 
         public static FFbxUnpackPlan BuildPreview(Object sourceFbx, string saveFolderPath)
@@ -38,10 +38,83 @@ namespace Feeder
                 RootOutputFolderPath = $"{saveFolderPath}/{ValidateAssetName(Path.GetFileNameWithoutExtension(sourcePath))}"
             };
 
+            if (AssetDatabase.IsValidFolder(plan.RootOutputFolderPath))
+                plan.Warnings.Add(
+                    $"Output folder already exists ({plan.RootOutputFolderPath}); re-applying can create duplicate assets with fresh GUIDs.");
+
             LoadSourceSubAssets(plan);
             CollectCandidatePaths(plan);
             ScanReferenceHits(plan);
             return plan;
+        }
+
+        /// <summary>Builds one preview plan per FBX. Invalid entries and duplicates are skipped.</summary>
+        public static List<FFbxUnpackPlan> BuildPreviewBatch(IEnumerable<Object> fbxList, string saveFolderPath)
+        {
+            var plans = new List<FFbxUnpackPlan>();
+            if (fbxList == null) return plans;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (Object fbx in fbxList)
+            {
+                if (fbx == null) continue;
+                string path = AssetDatabase.GetAssetPath(fbx);
+                if (string.IsNullOrEmpty(path) ||
+                    !Path.GetExtension(path).Equals(".fbx", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!seen.Add(path)) continue;
+
+                try
+                {
+                    plans.Add(BuildPreview(fbx, saveFolderPath));
+                }
+                catch (Exception ex)
+                {
+                    Debug.LogError($"[FBX Unpack] Preview failed for {path}: {ex.Message}");
+                }
+            }
+
+            return plans;
+        }
+
+        /// <summary>Applies a batch of preview plans sequentially and aggregates the result.</summary>
+        public static FFbxUnpackBatchResult ApplyBatch(IList<FFbxUnpackPlan> plans)
+        {
+            var batch = new FFbxUnpackBatchResult();
+            if (plans == null) return batch;
+
+            try
+            {
+                for (int i = 0; i < plans.Count; i++)
+                {
+                    FFbxUnpackPlan plan = plans[i];
+                    if (plan == null || !plan.HasPreview) continue;
+
+                    EditorUtility.DisplayProgressBar(
+                        "FBX Unpack",
+                        $"Unpacking {plan.SourceFbxName} ({i + 1}/{plans.Count})",
+                        plans.Count == 0 ? 1f : (float)i / plans.Count);
+
+                    try
+                    {
+                        batch.Results.Add(Apply(plan));
+                    }
+                    catch (Exception ex)
+                    {
+                        var failed = new FFbxUnpackApplyResult { SourceFbxPath = plan.SourceFbxPath, Aborted = true };
+                        failed.Errors.Add(ex.Message);
+                        failed.Logs.Add($"Apply threw for {plan.SourceFbxName}: {ex.Message}");
+                        batch.Results.Add(failed);
+                        Debug.LogException(ex);
+                    }
+                }
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
+            }
+
+            return batch;
         }
 
         public static FFbxUnpackApplyResult Apply(FFbxUnpackPlan plan)
@@ -55,40 +128,101 @@ namespace Feeder
                 !string.Equals(sourceGuid, plan.SourceFbxGuid, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Source FBX changed after preview. Run Preview again.");
 
-            var result = new FFbxUnpackApplyResult();
-            EnsureOutputFolders(plan);
-            ExtractAllAssets(plan, result);
-
-            var pathsToTouch = plan.ReferenceHits
-                .Where(h => h.Writable)
-                .Select(h => h.AssetPath)
-                .Where(p => !string.IsNullOrEmpty(p))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(GetWriteOrder)
-                .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-
-            foreach (string path in pathsToTouch)
+            var result = new FFbxUnpackApplyResult { SourceFbxPath = plan.SourceFbxPath };
+            try
             {
-                int changed = RemapAssetPath(path, plan);
-                if (changed <= 0) continue;
+                EnsureOutputFolders(plan);
+                ExtractAllAssets(plan, result);
 
-                result.TouchedAssetCount++;
-                result.ReplacedReferenceCount += changed;
-                result.Logs.Add($"Remapped {changed} reference(s): {path}");
+                // Transactional guarantee: every generated asset must replace the original. If any sub-asset
+                // failed to extract, roll back the partial output and never remap against an incomplete map.
+                if (result.Errors.Count > 0)
+                {
+                    RollbackExtraction(plan, result);
+                    result.Aborted = true;
+                    result.Logs.Add(
+                        $"Aborted: {result.Errors.Count} sub-asset(s) failed to extract. No references were changed and partial output was removed.");
+                    return result;
+                }
+
+                string[] pathsToTouch = plan.ReferenceHits
+                    .Where(h => h.Writable)
+                    .Select(h => h.AssetPath)
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(GetWriteOrder)
+                    .ThenBy(p => p, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                for (int i = 0; i < pathsToTouch.Length; i++)
+                {
+                    string path = pathsToTouch[i];
+                    EditorUtility.DisplayProgressBar(
+                        "FBX Unpack",
+                        $"Remapping {Path.GetFileName(path)} ({i + 1}/{pathsToTouch.Length})",
+                        pathsToTouch.Length == 0 ? 1f : (float)i / pathsToTouch.Length);
+
+                    int changed = RemapAssetPath(path, plan);
+                    if (changed <= 0) continue;
+
+                    result.TouchedAssetCount++;
+                    result.ReplacedReferenceCount += changed;
+                    result.Logs.Add($"Remapped {changed} reference(s): {path}");
+                }
+
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+
+                VerifyUnreferenced(plan, result);
+            }
+            finally
+            {
+                EditorUtility.ClearProgressBar();
             }
 
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
-
-            ScanReferenceHits(plan);
-            result.RemainingReferenceCount = plan.ReferenceHits.Where(h => h.Writable).Sum(h => h.Count);
-            if (result.RemainingReferenceCount > 0)
-                result.Logs.Add($"Remaining direct FBX reference(s): {result.RemainingReferenceCount}");
-            else
-                result.Logs.Add("No direct references to the source FBX sub-assets remain in preview candidates.");
-
             return result;
+        }
+
+        /// <summary>Deletes assets created during a failed Apply so the project is left clean.</summary>
+        private static void RollbackExtraction(FFbxUnpackPlan plan, FFbxUnpackApplyResult result)
+        {
+            foreach (FFbxSubAssetInfo info in plan.SubAssets)
+            {
+                if (string.IsNullOrEmpty(info.ExtractedPath)) continue;
+                AssetDatabase.DeleteAsset(info.ExtractedPath);
+                info.ExtractedPath = null;
+                info.ExtractedObject = null;
+            }
+
+            plan.ExtractedAssetMap.Clear();
+            result.ExtractedCount = 0;
+            AssetDatabase.Refresh();
+        }
+
+        /// <summary>Authoritative post-remap check: which candidate assets still depend on the source FBX.</summary>
+        private static void VerifyUnreferenced(FFbxUnpackPlan plan, FFbxUnpackApplyResult result)
+        {
+            var referrers = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (string path in plan.CandidateAssetPaths)
+            {
+                if (string.IsNullOrEmpty(path)) continue;
+                foreach (string dep in AssetDatabase.GetDependencies(path, true))
+                {
+                    if (!string.Equals(dep, plan.SourceFbxPath, StringComparison.OrdinalIgnoreCase)) continue;
+                    referrers.Add(path);
+                    break;
+                }
+            }
+
+            result.RemainingReferrers.Clear();
+            result.RemainingReferrers.AddRange(referrers.OrderBy(p => p, StringComparer.OrdinalIgnoreCase));
+            result.RemainingReferenceCount = referrers.Count;
+
+            if (referrers.Count == 0)
+                result.Logs.Add("Verified via AssetDatabase.GetDependencies: no project asset depends on the source FBX anymore.");
+            else
+                result.Logs.Add($"Still referenced by {referrers.Count} asset(s) after remap (see remaining list).");
         }
 
         public static List<FFbxReferenceHit> ScanRemainingReferences(FFbxUnpackPlan plan)
@@ -231,6 +365,15 @@ namespace Feeder
                 .OrderBy(h => h.AssetPath, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(h => h.SourceType, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(h => h.SourceName, StringComparer.OrdinalIgnoreCase));
+
+            foreach (FFbxSubAssetInfo info in plan.SubAssets)
+            {
+                int total = 0;
+                foreach (FFbxReferenceHit hit in plan.ReferenceHits)
+                    if (hit.SourceKey.Equals(info.Key))
+                        total += hit.Count;
+                info.UsedByCount = total;
+            }
         }
 
         private static int CountSerializedReferences(string assetPath, FFbxSubAssetKey key)
@@ -271,11 +414,18 @@ namespace Feeder
         {
             plan.ExtractedAssetMap.Clear();
 
+            string fbxName = plan.SourceFbxName;
+            EditorUtility.DisplayProgressBar("FBX Unpack", $"{fbxName}: extracting textures", 0.05f);
             ExtractByType<Texture2D>(plan, result);
+            EditorUtility.DisplayProgressBar("FBX Unpack", $"{fbxName}: extracting materials", 0.15f);
             ExtractByType<Material>(plan, result);
+            EditorUtility.DisplayProgressBar("FBX Unpack", $"{fbxName}: extracting meshes", 0.30f);
             ExtractByType<Mesh>(plan, result);
+            EditorUtility.DisplayProgressBar("FBX Unpack", $"{fbxName}: extracting animations", 0.45f);
             ExtractByType<AnimationClip>(plan, result);
+            EditorUtility.DisplayProgressBar("FBX Unpack", $"{fbxName}: extracting avatar", 0.55f);
             ExtractByType<Avatar>(plan, result);
+            EditorUtility.DisplayProgressBar("FBX Unpack", $"{fbxName}: extracting prefab", 0.65f);
             ExtractByType<GameObject>(plan, result);
 
             AssetDatabase.SaveAssets();
@@ -320,6 +470,7 @@ namespace Feeder
 
         private static void ExtractOne(FFbxUnpackPlan plan, FFbxSubAssetInfo info, FFbxUnpackApplyResult result)
         {
+            info.ExtractError = null;
             try
             {
                 switch (info.SourceObject)
@@ -353,8 +504,11 @@ namespace Feeder
             catch (Exception ex)
             {
                 string message = $"Failed to extract {info.DisplayType} '{info.DisplayName}': {ex.Message}";
+                info.ExtractError = message;
                 plan.Warnings.Add(message);
+                result.Errors.Add(message);
                 result.Logs.Add(message);
+                Debug.LogException(ex);
             }
         }
 
@@ -417,9 +571,27 @@ namespace Feeder
         private static string ExtractClip(FFbxUnpackPlan plan, FFbxSubAssetInfo info, AnimationClip source)
         {
             string assetName = ValidateAssetName(string.IsNullOrWhiteSpace(source.name) ? "Clip" : source.name);
-            var copy = new AnimationClip();
-            EditorUtility.CopySerialized(source, copy);
-            copy.name = assetName;
+
+            // A fresh AnimationClip cannot be filled from a model-imported clip with EditorUtility.CopySerialized
+            // ("Source and Destination Types do not match"). Copy the curve/event data explicitly instead.
+            var copy = new AnimationClip
+            {
+                name = assetName,
+                legacy = source.legacy,
+                frameRate = source.frameRate,
+                wrapMode = source.wrapMode,
+                localBounds = source.localBounds
+            };
+
+            foreach (EditorCurveBinding binding in AnimationUtility.GetCurveBindings(source))
+                AnimationUtility.SetEditorCurve(copy, binding, AnimationUtility.GetEditorCurve(source, binding));
+
+            foreach (EditorCurveBinding binding in AnimationUtility.GetObjectReferenceCurveBindings(source))
+                AnimationUtility.SetObjectReferenceCurve(copy, binding, AnimationUtility.GetObjectReferenceCurve(source, binding));
+
+            AnimationUtility.SetAnimationClipSettings(copy, AnimationUtility.GetAnimationClipSettings(source));
+            AnimationUtility.SetAnimationEvents(copy, AnimationUtility.GetAnimationEvents(source));
+
             string path = AssetDatabase.GenerateUniqueAssetPath(
                 $"{plan.RootOutputFolderPath}/{AnimationsFolderName}/{assetName}.anim");
             AssetDatabase.CreateAsset(copy, path);
@@ -599,6 +771,13 @@ namespace Feeder
                 case MeshRenderer meshRenderer:
                     changed += RemapMaterials(meshRenderer, map);
                     break;
+                case MeshCollider meshCollider:
+                    if (TryResolve(meshCollider.sharedMesh, map, out Mesh colliderMesh))
+                    {
+                        meshCollider.sharedMesh = colliderMesh;
+                        changed++;
+                    }
+                    break;
                 case Animator animator:
                     if (TryResolve(animator.avatar, map, out Avatar avatar))
                     {
@@ -687,9 +866,13 @@ namespace Feeder
                 Quaternion localRotation = oldTransform.localRotation;
                 Vector3 localScale = oldTransform.localScale;
 
-                GameObject replacement = PrefabUtility.InstantiatePrefab(replacementPrefab, oldRoot.scene) as GameObject;
+                var replacement = PrefabUtility.InstantiatePrefab(replacementPrefab, oldRoot.scene) as GameObject;
                 if (replacement == null)
-                    replacement = Object.Instantiate(replacementPrefab);
+                {
+                    // Never fall back to a scene-less Object.Instantiate: it leaks copies into the active scene.
+                    plan.Warnings.Add($"Could not instantiate replacement prefab for '{objectName}'; left the original FBX instance in place.");
+                    continue;
+                }
 
                 replacement.name = objectName;
                 replacement.SetActive(active);
@@ -933,6 +1116,7 @@ namespace Feeder
                 case ".overridecontroller": return "Animator Override";
                 case ".mat": return "Material";
                 case ".anim": return "Animation";
+                case ".playable": return "Timeline";
                 case ".asset": return "Asset";
                 default: return "Asset";
             }
